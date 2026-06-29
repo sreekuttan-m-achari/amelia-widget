@@ -1,0 +1,24 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "amelia@local",
+        "Name": "Amelia"
+      }
+    ],
+    "Category": "Utilities",
+    "Description": "Chat with Amelia (Cursor agent) from your desktop",
+    "EnabledByDefault": true,
+    "Icon": "user-available",
+    "Id": "org.amelia.widget",
+    "License": "GPL-2.0+",
+    "Name": "Amelia",
+    "ServiceTypes": [
+      "Plasma/Applet"
+    ],
+    "Version": "0.5.8",
+    "Website": ""
+  },
+  "X-Plasma-API": "declarativeappletscript",
+  "X-Plasma-MainScript": "ui/main.qml"
+}

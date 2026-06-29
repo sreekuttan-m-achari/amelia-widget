@@ -1,0 +1,21 @@
+[Unit]
+Description=Amelia desktop widget API (Cursor agent)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=__SERVER_DIR__
+Environment=NODE_ENV=production
+Environment=HOME=/home/__SERVICE_USER__
+Environment=PATH=/home/__SERVICE_USER__/.nvm/versions/node/v22.23.1/bin:/home/__SERVICE_USER__/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-__SERVER_DIR__/.env
+ExecStart=__NODE__ __TSX__ __SERVER_DIR__/src/main.ts
+Restart=on-failure
+RestartSec=10
+SyslogIdentifier=amelia-widget
+
+[Install]
+WantedBy=default.target

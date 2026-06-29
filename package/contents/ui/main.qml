@@ -1,0 +1,783 @@
+import QtQuick 2.15
+import QtQuick.Layouts 1.15
+import QtQuick.Controls 2.15 as QQC2
+import QtWebSockets 1.1
+import org.kde.kirigami 2.19 as Kirigami
+import org.kde.plasma.core 2.0 as PlasmaCore
+import org.kde.plasma.plasmoid 2.0
+import org.kde.plasma.components 3.0 as PlasmaComponents
+
+Item {
+    id: root
+
+    implicitWidth: Kirigami.Units.gridUnit * 19
+    implicitHeight: Kirigami.Units.gridUnit * 15
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+    Layout.minimumHeight: Kirigami.Units.gridUnit * 10
+    Layout.preferredWidth: implicitWidth
+    Layout.preferredHeight: implicitHeight
+
+    Plasmoid.preferredRepresentation: Plasmoid.fullRepresentation
+    Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
+
+    readonly property color aiGlow: "#6ec8ff"
+    readonly property color aiGlowSoft: Qt.rgba(0.43, 0.78, 1.0, 0.35)
+    readonly property color aiViolet: Qt.rgba(0.62, 0.48, 0.98, 0.18)
+    readonly property color aiGlass: Qt.rgba(0.04, 0.07, 0.13, 0.55)
+    readonly property color aiGlassHi: Qt.rgba(0.08, 0.12, 0.2, 0.42)
+    readonly property color aiBorder: Qt.rgba(0.43, 0.78, 1.0, 0.2)
+    readonly property color aiText: Qt.rgba(0.93, 0.97, 1.0, 0.94)
+    readonly property color aiMuted: Qt.rgba(0.62, 0.72, 0.86, 0.78)
+    readonly property color aiError: "#ff6b7a"
+
+    // Balanced density — slightly tighter than default, not cramped
+    readonly property real uiBodyPt: Kirigami.Theme.defaultFont.pointSize - 0.5
+    readonly property real uiSmallPt: Kirigami.Theme.smallFont.pointSize - 0.5
+    readonly property real uiCaptionPt: Kirigami.Theme.smallFont.pointSize - 1
+    readonly property real uiPad: Kirigami.Units.smallSpacing + 2
+    readonly property real uiGap: Kirigami.Units.smallSpacing + 1
+    readonly property real uiRadius: 12
+
+    readonly property color userAccent: "#6ec8ff"
+    readonly property color agentAccent: "#b8a8ff"
+
+    readonly property string apiBase: {
+        var url = plasmoid.configuration.apiUrl || "http://127.0.0.1:8787";
+        if (url.endsWith("/")) {
+            url = url.slice(0, -1);
+        }
+        return url;
+    }
+    readonly property string wsUrl: {
+        if (apiBase.indexOf("https://") === 0) {
+            return "wss://" + apiBase.slice(8);
+        }
+        if (apiBase.indexOf("http://") === 0) {
+            return "ws://" + apiBase.slice(7);
+        }
+        return "ws://127.0.0.1:8787";
+    }
+    readonly property string healthUrl: apiBase + "/health"
+    readonly property string chatUrl: apiBase + "/chat"
+
+    property bool busy: false
+    property bool serverReady: false
+    property bool wsConnected: false
+    property bool connecting: true
+    property bool connectionFailed: false
+    property bool selfCheckDone: false
+    property bool agentWarm: false
+    property bool hasUserChatted: false
+    property string startupGreeting: ""
+    property string serverVersion: ""
+    property bool hasPersona: false
+    property bool hasUserProfile: false
+    property string pendingId: ""
+    property string streamingReply: ""
+
+    readonly property string statusLabel: {
+        if (connectionFailed) {
+            return qsTr("offline");
+        }
+        if (!serverReady) {
+            return qsTr("checking…");
+        }
+        if (!agentWarm) {
+            return qsTr("warming…");
+        }
+        if (wsConnected) {
+            return qsTr("online ●");
+        }
+        return qsTr("online");
+    }
+
+    readonly property color statusColor: {
+        if (connectionFailed) {
+            return aiError;
+        }
+        if (serverReady) {
+            return aiGlow;
+        }
+        return aiMuted;
+    }
+
+    ListModel {
+        id: messageModel
+    }
+
+    function clearMessages() {
+        messageModel.clear();
+    }
+
+    function addMessage(role, text, pending) {
+        messageModel.append({
+            role: role,
+            text: text,
+            pending: pending === true
+        });
+        scrollChatToEnd();
+    }
+
+    function scrollChatToEnd() {
+        Qt.callLater(function() {
+            var flick = chatScroll.contentItem;
+            if (!flick) {
+                return;
+            }
+            if (flick.contentHeight > flick.height) {
+                flick.contentY = flick.contentHeight - flick.height;
+            }
+        });
+    }
+
+    function appendUserMessage(text) {
+        addMessage("user", text, false);
+    }
+
+    function appendPendingAssistant() {
+        addMessage("assistant", "…", true);
+    }
+
+    function updatePendingAssistant(text) {
+        for (var i = messageModel.count - 1; i >= 0; i--) {
+            if (messageModel.get(i).role === "assistant" && messageModel.get(i).pending) {
+                messageModel.setProperty(i, "text", text);
+                scrollChatToEnd();
+                return;
+            }
+        }
+        addMessage("assistant", text, true);
+    }
+
+    function finalizePendingAssistant(text) {
+        for (var i = messageModel.count - 1; i >= 0; i--) {
+            if (messageModel.get(i).role === "assistant" && messageModel.get(i).pending) {
+                messageModel.setProperty(i, "text", text);
+                messageModel.setProperty(i, "pending", false);
+                scrollChatToEnd();
+                return;
+            }
+        }
+        addMessage("assistant", text, false);
+    }
+
+    function replacePendingAmeliaLine(text) {
+        updatePendingAssistant(text);
+    }
+
+    function setAssistantGreeting(text) {
+        clearMessages();
+        addMessage("assistant", text, false);
+    }
+
+    function setSystemMessage(text) {
+        clearMessages();
+        addMessage("system", text, false);
+    }
+
+    function applyGreeting(text) {
+        if (!text || text.length === 0) {
+            return;
+        }
+        agentWarm = true;
+        startupGreeting = text;
+        if (!hasUserChatted && !busy) {
+            setAssistantGreeting(text);
+        }
+    }
+
+    function applyHealth(health) {
+        if (health.greeting) {
+            applyGreeting(health.greeting);
+        } else if (health.warm) {
+            agentWarm = true;
+        }
+    }
+
+    function appendReply(role, text) {
+        if (role === "user") {
+            appendUserMessage(text);
+        } else {
+            addMessage("assistant", text, false);
+        }
+    }
+
+    function buildSelfCheckSuccess(health) {
+        var lines = [
+            qsTr("Self-check: backend is up."),
+            "",
+            "✓ " + qsTr("Reachable at %1").arg(apiBase)
+        ];
+        if (health.version) {
+            lines.push("✓ " + qsTr("API version %1").arg(health.version));
+        }
+        if (health.persona) {
+            lines.push("✓ " + qsTr("Persona loaded (SOUL.md)"));
+        } else {
+            lines.push("○ " + qsTr("No persona — add server/SOUL.md for a custom voice"));
+        }
+        if (health.userProfile) {
+            lines.push("✓ " + qsTr("User profile loaded (USER.md)"));
+        }
+        if (wsConnected) {
+            lines.push("✓ " + qsTr("WebSocket connected — streaming replies"));
+        } else {
+            lines.push("○ " + qsTr("WebSocket not connected yet — using HTTP"));
+        }
+        lines.push("");
+        lines.push(qsTr("You can chat now. Press Enter to send."));
+        return lines.join("\n");
+    }
+
+    function buildSelfCheckFailure() {
+        return [
+            qsTr("Self-check: backend is down."),
+            "",
+            "✗ " + qsTr("No response from %1").arg(healthUrl),
+            "",
+            qsTr("Start the service:"),
+            "  systemctl --user start amelia-widget",
+            "",
+            qsTr("Check logs:"),
+            "  journalctl --user -u amelia-widget -f",
+            "",
+            qsTr("Tap Retry when the service is running.")
+        ].join("\n");
+    }
+
+    function refreshSelfCheckMessage() {
+        if (!selfCheckDone || !serverReady || busy || agentWarm) {
+            return;
+        }
+        setSystemMessage(buildSelfCheckSuccess({
+            version: serverVersion,
+            persona: hasPersona,
+            userProfile: hasUserProfile
+        }));
+    }
+
+    function onBackendConnected(health) {
+        connectionFailed = false;
+        connectFailTimer.stop();
+        serverReady = true;
+        connecting = false;
+        selfCheckDone = true;
+        serverVersion = health.version || "";
+        hasPersona = !!health.persona;
+        hasUserProfile = !!health.userProfile;
+        applyHealth(health);
+        if (!agentWarm && !busy) {
+            clearMessages();
+        }
+        socket.active = true;
+    }
+
+    function onBackendFailed() {
+        connecting = false;
+        connectionFailed = true;
+        selfCheckDone = true;
+        serverReady = false;
+        setSystemMessage(buildSelfCheckFailure());
+    }
+
+    function checkHealth() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", healthUrl);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) {
+                return;
+            }
+            if (xhr.status === 200) {
+                try {
+                    var body = JSON.parse(xhr.responseText);
+                    if (body.ok) {
+                        root.onBackendConnected(body);
+                        return;
+                    }
+                } catch (e) {
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    function retryConnection() {
+        connecting = true;
+        connectionFailed = false;
+        serverReady = false;
+        wsConnected = false;
+        selfCheckDone = false;
+        agentWarm = false;
+        hasUserChatted = false;
+        startupGreeting = "";
+        clearMessages();
+        connectFailTimer.restart();
+        checkHealth();
+        socket.active = false;
+    }
+
+    function sendViaHttp(text) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", chatUrl);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) {
+                return;
+            }
+            root.busy = false;
+            if (xhr.status === 200) {
+                try {
+                    var body = JSON.parse(xhr.responseText);
+                    finalizePendingAssistant(body.reply || qsTr("(empty reply)"));
+                    return;
+                } catch (e) {
+                }
+            }
+            var err = xhr.status === 0
+                ? qsTr("Cannot reach %1 — is the service running?").arg(apiBase)
+                : qsTr("Request failed (HTTP %1)").arg(xhr.status);
+            finalizePendingAssistant(err);
+        };
+        xhr.send(JSON.stringify({ message: text }));
+    }
+
+    function sendMessage() {
+        var text = inputField.text.trim();
+        if (text.length === 0 || busy || !serverReady || !agentWarm) {
+            return;
+        }
+
+        inputField.text = "";
+        busy = true;
+        hasUserChatted = true;
+        streamingReply = "";
+        pendingId = String(Date.now());
+        appendUserMessage(text);
+        appendPendingAssistant();
+
+        if (socket.status === WebSocket.Open) {
+            socket.sendTextMessage(JSON.stringify({
+                type: "chat",
+                id: pendingId,
+                message: text
+            }));
+            return;
+        }
+
+        sendViaHttp(text);
+    }
+
+    function handleWsMessage(message) {
+        var body;
+        try {
+            body = JSON.parse(message);
+        } catch (e) {
+            return;
+        }
+
+        if (body.type === "ready") {
+            wsConnected = true;
+            if (body.greeting) {
+                applyGreeting(body.greeting);
+            } else if (body.warm) {
+                agentWarm = true;
+            }
+            return;
+        }
+
+        if (body.type === "greeting") {
+            applyGreeting(body.text || "");
+            return;
+        }
+
+        if (body.type === "chunk" && String(body.id) === pendingId) {
+            streamingReply += body.text || "";
+            replacePendingAmeliaLine(streamingReply);
+            return;
+        }
+
+        if (body.type === "done" && String(body.id) === pendingId) {
+            busy = false;
+            var finalReply = body.reply || streamingReply || qsTr("(empty reply)");
+            finalizePendingAssistant(finalReply);
+            streamingReply = "";
+            pendingId = "";
+            return;
+        }
+
+        if (body.type === "error" && (!body.id || String(body.id) === pendingId)) {
+            busy = false;
+            finalizePendingAssistant(body.error || qsTr("Unknown error"));
+            streamingReply = "";
+            pendingId = "";
+        }
+    }
+
+    Timer {
+        id: connectFailTimer
+        interval: 12000
+        repeat: false
+        onTriggered: {
+            if (!root.serverReady) {
+                root.onBackendFailed();
+            }
+        }
+    }
+
+    Timer {
+        id: healthPoll
+        interval: 3000
+        running: root.connecting && !root.connectionFailed
+        repeat: true
+        onTriggered: root.checkHealth()
+    }
+
+    Timer {
+        id: warmupPoll
+        interval: 1500
+        running: root.serverReady && !root.agentWarm && !root.connectionFailed
+        repeat: true
+        onTriggered: root.checkHealth()
+    }
+
+    WebSocket {
+        id: socket
+        url: root.wsUrl
+        active: false
+
+        onTextMessageReceived: root.handleWsMessage(message)
+
+        onStatusChanged: {
+            if (status === WebSocket.Open) {
+                root.wsConnected = true;
+                root.refreshSelfCheckMessage();
+            } else if (status === WebSocket.Closed || status === WebSocket.Error) {
+                root.wsConnected = false;
+                if (root.serverReady && !root.busy) {
+                    root.refreshSelfCheckMessage();
+                }
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        connectFailTimer.start();
+        checkHealth();
+    }
+
+    // Outer glass shell
+    GlassPanel {
+        anchors.fill: parent
+        fillOpacity: 0.52
+        glow: root.aiGlow
+    }
+
+    // Soft violet corner accent
+    Rectangle {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Kirigami.Units.smallSpacing
+        width: parent.width * 0.45
+        height: parent.height * 0.35
+        radius: 16
+        opacity: 0.55
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: "transparent" }
+            GradientStop { position: 1; color: root.aiViolet }
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: uiPad
+        spacing: uiGap
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            spacing: uiGap
+
+            Kirigami.Heading {
+                Layout.fillWidth: true
+                level: 5
+                text: i18n("Amelia")
+                color: root.aiText
+                font.pointSize: uiBodyPt + 0.5
+                font.letterSpacing: 0.6
+                font.weight: Font.DemiBold
+            }
+
+            Rectangle {
+                visible: statusLabel.length > 0
+                implicitHeight: statusLabelItem.implicitHeight + 8
+                implicitWidth: statusLabelItem.implicitWidth + 14
+                radius: implicitHeight / 2
+                color: Qt.rgba(statusColor.r, statusColor.g, statusColor.b, 0.12)
+                border.color: Qt.rgba(statusColor.r, statusColor.g, statusColor.b, 0.38)
+                border.width: 1
+
+                QQC2.Label {
+                    id: statusLabelItem
+                    anchors.centerIn: parent
+                    text: statusLabel
+                    color: statusColor
+                    font.pointSize: uiCaptionPt
+                    font.capitalization: Font.AllSmallCaps
+                    font.letterSpacing: 0.4
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: uiGap
+                visible: root.serverReady && root.agentWarm
+                enabled: root.serverReady && root.agentWarm
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: uiRadius
+                        color: root.aiGlassHi
+                        border.color: root.aiBorder
+                        border.width: 1
+                    }
+
+                    QQC2.ScrollView {
+                        id: chatScroll
+                        anchors.fill: parent
+                        anchors.margins: uiPad
+                        clip: true
+
+                        Column {
+                            id: messageColumn
+                            width: Math.max(
+                                chatScroll.availableWidth,
+                                chatScroll.width - uiPad * 2
+                            )
+                            spacing: Kirigami.Units.gridUnit * 0.55
+                            topPadding: uiPad + 2
+                            bottomPadding: uiPad + 2
+
+                            Repeater {
+                                model: messageModel
+
+                                ChatBubble {
+                                    width: messageColumn.width
+                                    role: model.role
+                                    text: model.text
+                                    pending: model.pending
+                                }
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: uiGap
+
+                    QQC2.TextField {
+                        id: inputField
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
+                        placeholderText: i18n("Message Amelia…")
+                        enabled: !root.busy
+                        color: root.aiText
+                        placeholderTextColor: root.aiMuted
+                        font.pointSize: uiBodyPt
+                        selectByMouse: true
+                        topPadding: 6
+                        bottomPadding: 6
+                        leftPadding: uiPad
+                        rightPadding: uiPad
+
+                        background: Rectangle {
+                            radius: uiRadius - 2
+                            color: Qt.rgba(0, 0, 0, 0.18)
+                            border.width: inputField.activeFocus ? 1.5 : 1
+                            border.color: inputField.activeFocus ? root.aiGlowSoft : root.aiBorder
+
+                            Behavior on border.color {
+                                ColorAnimation { duration: 200; easing.type: Easing.OutCubic }
+                            }
+                        }
+
+                        onAccepted: root.sendMessage()
+
+                        Keys.onReturnPressed: {
+                            if (!(event.modifiers & Qt.ShiftModifier)) {
+                                root.sendMessage();
+                                event.accepted = true;
+                            }
+                        }
+                    }
+
+                    QQC2.Button {
+                        id: sendButton
+                        text: i18n("Send")
+                        enabled: !root.busy && inputField.text.trim().length > 0
+                        flat: true
+                        implicitHeight: Kirigami.Units.gridUnit * 2.5
+                        implicitWidth: Kirigami.Units.gridUnit * 4
+                        font.pointSize: uiSmallPt
+                        onClicked: root.sendMessage()
+
+                        contentItem: Text {
+                            text: sendButton.text
+                            font: sendButton.font
+                            color: sendButton.enabled ? "#061018" : root.aiMuted
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: uiRadius - 2
+                            opacity: sendButton.enabled ? 1 : 0.45
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0; color: Qt.rgba(0.38, 0.72, 1.0, 0.85) }
+                                GradientStop { position: 1; color: Qt.rgba(0.52, 0.62, 0.98, 0.8) }
+                            }
+                            border.color: Qt.rgba(1, 1, 1, 0.18)
+                            border.width: 1
+                        }
+                    }
+                }
+
+                Loader {
+                    id: chatBusyLoader
+                    Layout.alignment: Qt.AlignHCenter
+                    active: root.busy
+                    visible: root.busy
+                    source: "ModernLoader.qml"
+                    onLoaded: {
+                        item.variant = "dots";
+                        item.accentColor = root.aiGlow;
+                    }
+                }
+
+                Binding {
+                    target: chatBusyLoader.item
+                    property: "running"
+                    value: root.busy
+                    when: chatBusyLoader.item !== null
+                }
+            }
+
+            Item {
+                anchors.fill: parent
+                visible: !root.serverReady || !root.agentWarm
+
+                GlassPanel {
+                    anchors.fill: parent
+                    fillOpacity: 0.48
+                    glow: root.aiGlow
+                    showShimmer: true
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: Kirigami.Units.gridUnit
+
+                    Loader {
+                        id: selfCheckLoader
+                        Layout.alignment: Qt.AlignHCenter
+                        active: !root.serverReady || !root.agentWarm
+                        source: "ModernLoader.qml"
+                        onLoaded: {
+                            item.variant = "ring";
+                            item.accentColor = root.aiGlow;
+                        }
+                    }
+
+                    Binding {
+                        target: selfCheckLoader.item
+                        property: "running"
+                        value: !root.serverReady || !root.agentWarm
+                        when: selfCheckLoader.item !== null
+                    }
+
+                    QQC2.Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.serverReady
+                            ? qsTr("Waking Amelia…")
+                            : qsTr("Connecting to backend…")
+                        color: root.aiText
+                        font.pointSize: Kirigami.Theme.defaultFont.pointSize
+                        font.letterSpacing: 0.4
+                    }
+
+                    QQC2.Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: !root.serverReady
+                        text: qsTr("GET %1").arg(root.healthUrl)
+                        color: root.aiMuted
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        font.family: "monospace"
+                    }
+
+                    QQC2.Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.serverReady && !root.agentWarm
+                        text: qsTr("Pre-warming agent session")
+                        color: root.aiMuted
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    }
+                }
+            }
+
+            Item {
+                anchors.fill: parent
+                visible: root.connectionFailed
+
+                GlassPanel {
+                    anchors.fill: parent
+                    fillOpacity: 0.48
+                    glow: root.aiError
+                    showShimmer: false
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+
+                        ChatBubble {
+                            width: parent.width
+                            role: "system"
+                            text: buildSelfCheckFailure()
+                        }
+                    }
+
+                    QQC2.Button {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: i18n("Retry self-check")
+                        flat: true
+                        onClicked: root.retryConnection()
+
+                        background: Rectangle {
+                            radius: uiRadius - 2
+                            color: Qt.rgba(1, 0.42, 0.47, 0.14)
+                            border.color: Qt.rgba(1, 0.42, 0.47, 0.35)
+                            border.width: 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
