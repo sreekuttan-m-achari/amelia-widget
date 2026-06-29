@@ -96,7 +96,7 @@ killall plasmashell && kstart5 plasmashell &
 
 Remove and re-add the widget. Look for **v0.4** (blue **●** when WebSocket streaming is active).
 
-Uses WebSocket for streaming when available; falls back to HTTP `POST /chat`. While a reply is in progress, **Cancel** stops the agent; **Resume** resends the last message.
+Uses WebSocket for streaming when available; falls back to HTTP `POST /chat`. While a reply is in progress, **Cancel** stops the agent; **Resume** resends the last message. Click the **fullscreen** icon (or press **Esc** to exit) for immersive focus mode.
 
 ## Uninstall
 

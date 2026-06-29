@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15 as QQC2
 import QtWebSockets 1.1
+import QtQuick.Window 2.15
 import org.kde.kirigami 2.19 as Kirigami
 import org.kde.plasma.core 2.0 as PlasmaCore
 import org.kde.plasma.plasmoid 2.0
@@ -78,6 +79,11 @@ Item {
     property string lastQueryText: ""
     property bool canResume: false
     property var activeHttpXhr: null
+    property bool immersiveActive: false
+    property string composeText: ""
+    property var immersiveWindow: null
+
+    signal chatScrollRequested()
 
     readonly property string statusLabel: {
         if (connectionFailed) {
@@ -106,15 +112,17 @@ Item {
     }
 
     ListModel {
-        id: messageModel
+        id: chatMessageModel
     }
 
+    property alias messageModel: chatMessageModel
+
     function clearMessages() {
-        messageModel.clear();
+        chatMessageModel.clear();
     }
 
     function addMessage(role, text, pending) {
-        messageModel.append({
+        chatMessageModel.append({
             role: role,
             text: text,
             pending: pending === true
@@ -123,15 +131,7 @@ Item {
     }
 
     function scrollChatToEnd() {
-        Qt.callLater(function() {
-            var flick = chatScroll.contentItem;
-            if (!flick) {
-                return;
-            }
-            if (flick.contentHeight > flick.height) {
-                flick.contentY = flick.contentHeight - flick.height;
-            }
-        });
+        chatScrollRequested();
     }
 
     function appendUserMessage(text) {
@@ -143,9 +143,9 @@ Item {
     }
 
     function updatePendingAssistant(text) {
-        for (var i = messageModel.count - 1; i >= 0; i--) {
-            if (messageModel.get(i).role === "assistant" && messageModel.get(i).pending) {
-                messageModel.setProperty(i, "text", text);
+        for (var i = chatMessageModel.count - 1; i >= 0; i--) {
+            if (chatMessageModel.get(i).role === "assistant" && chatMessageModel.get(i).pending) {
+                chatMessageModel.setProperty(i, "text", text);
                 scrollChatToEnd();
                 return;
             }
@@ -154,10 +154,10 @@ Item {
     }
 
     function finalizePendingAssistant(text) {
-        for (var i = messageModel.count - 1; i >= 0; i--) {
-            if (messageModel.get(i).role === "assistant" && messageModel.get(i).pending) {
-                messageModel.setProperty(i, "text", text);
-                messageModel.setProperty(i, "pending", false);
+        for (var i = chatMessageModel.count - 1; i >= 0; i--) {
+            if (chatMessageModel.get(i).role === "assistant" && chatMessageModel.get(i).pending) {
+                chatMessageModel.setProperty(i, "text", text);
+                chatMessageModel.setProperty(i, "pending", false);
                 scrollChatToEnd();
                 return;
             }
@@ -414,32 +414,86 @@ Item {
         xhr.send(JSON.stringify({ message: text, id: pendingId }));
     }
 
-    function sendMessage() {
-        var text = inputField.text.trim();
-        if (text.length === 0 || busy || !serverReady || !agentWarm) {
+    function sendMessage(text) {
+        var msg = text !== undefined ? String(text).trim() : "";
+        if (msg.length === 0 || busy || !serverReady || !agentWarm) {
             return;
         }
 
-        inputField.text = "";
         busy = true;
         hasUserChatted = true;
         canResume = false;
-        lastQueryText = text;
+        lastQueryText = msg;
         streamingReply = "";
         pendingId = String(Date.now());
-        appendUserMessage(text);
+        appendUserMessage(msg);
         appendPendingAssistant();
 
         if (socket.status === WebSocket.Open) {
             socket.sendTextMessage(JSON.stringify({
                 type: "chat",
                 id: pendingId,
-                message: text
+                message: msg
             }));
             return;
         }
 
-        sendViaHttp(text);
+        sendViaHttp(msg);
+    }
+
+    function immersiveScreenRect() {
+        var g = plasmoid.screenGeometry;
+        if (g.width > 0 && g.height > 0) {
+            return Qt.rect(g.x, g.y, g.width, g.height);
+        }
+        return Qt.rect(Screen.virtualX, Screen.virtualY, Screen.width, Screen.height);
+    }
+
+    function ensureImmersiveWindow() {
+        if (!immersiveWindow) {
+            immersiveWindow = immersiveComponent.createObject(null, { widget: root });
+        }
+        return immersiveWindow;
+    }
+
+    function openImmersive() {
+        if (!serverReady || !agentWarm) {
+            return;
+        }
+        var win = ensureImmersiveWindow();
+        win.screenRect = immersiveScreenRect();
+        immersiveActive = true;
+        win.active = true;
+        Qt.callLater(syncImmersivePresentation);
+    }
+
+    function closeImmersive() {
+        immersiveActive = false;
+        if (immersiveWindow) {
+            immersiveWindow.active = false;
+        }
+        Qt.callLater(function() {
+            scrollChatToEnd();
+            if (compactWorkspace) {
+                compactWorkspace.focusInput();
+            }
+        });
+    }
+
+    function syncImmersivePresentation() {
+        scrollChatToEnd();
+        if (immersiveWindow) {
+            immersiveWindow.screenRect = immersiveScreenRect();
+            immersiveWindow.syncPresentation();
+        }
+    }
+
+    function toggleImmersive() {
+        if (immersiveActive) {
+            closeImmersive();
+        } else {
+            openImmersive();
+        }
     }
 
     function handleWsMessage(message) {
@@ -609,6 +663,38 @@ Item {
                     font.letterSpacing: 0.4
                 }
             }
+
+            QQC2.Button {
+                id: focusModeButton
+                visible: root.serverReady && root.agentWarm
+                text: root.immersiveActive ? i18n("Restore") : i18n("Focus")
+                flat: true
+                implicitHeight: Kirigami.Units.gridUnit * 2.2
+                implicitWidth: Math.max(
+                    Kirigami.Units.gridUnit * 4.8,
+                    focusModeLabel.implicitWidth + uiPad * 2
+                )
+                font.pointSize: uiSmallPt
+                onClicked: root.toggleImmersive()
+
+                contentItem: Text {
+                    id: focusModeLabel
+                    text: focusModeButton.text
+                    font: focusModeButton.font
+                    color: root.aiGlow
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: 8
+                    color: focusModeButton.down
+                        ? Qt.rgba(0.43, 0.78, 1.0, 0.22)
+                        : (focusModeButton.hovered ? Qt.rgba(0.43, 0.78, 1.0, 0.14) : Qt.rgba(0.43, 0.78, 1.0, 0.08))
+                    border.color: root.aiBorder
+                    border.width: 1
+                }
+            }
         }
 
         Item {
@@ -621,9 +707,19 @@ Item {
                 visible: root.serverReady && root.agentWarm
                 enabled: root.serverReady && root.agentWarm
 
+                ChatWorkspace {
+                    id: compactWorkspace
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    host: root
+                    visible: !root.immersiveActive
+                    enabled: visible
+                }
+
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    visible: root.immersiveActive
 
                     Rectangle {
                         anchors.fill: parent
@@ -633,177 +729,41 @@ Item {
                         border.width: 1
                     }
 
-                    QQC2.ScrollView {
-                        id: chatScroll
-                        anchors.fill: parent
-                        anchors.margins: uiPad
-                        clip: true
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: uiGap
 
-                        Column {
-                            id: messageColumn
-                            width: Math.max(
-                                chatScroll.availableWidth,
-                                chatScroll.width - uiPad * 2
-                            )
-                            spacing: Kirigami.Units.gridUnit * 0.55
-                            topPadding: uiPad + 2
-                            bottomPadding: uiPad + 2
-
-                            Repeater {
-                                model: messageModel
-
-                                ChatBubble {
-                                    width: messageColumn.width
-                                    role: model.role
-                                    text: model.text
-                                    pending: model.pending
-                                }
-                            }
-                        }
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: uiGap
-
-                    QQC2.TextField {
-                        id: inputField
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
-                        placeholderText: i18n("Message Amelia…")
-                        enabled: !root.busy
-                        color: root.aiText
-                        placeholderTextColor: root.aiMuted
-                        font.pointSize: uiBodyPt
-                        selectByMouse: true
-                        topPadding: 6
-                        bottomPadding: 6
-                        leftPadding: uiPad
-                        rightPadding: uiPad
-
-                        background: Rectangle {
-                            radius: uiRadius - 2
-                            color: Qt.rgba(0, 0, 0, 0.18)
-                            border.width: inputField.activeFocus ? 1.5 : 1
-                            border.color: inputField.activeFocus ? root.aiGlowSoft : root.aiBorder
-
-                            Behavior on border.color {
-                                ColorAnimation { duration: 200; easing.type: Easing.OutCubic }
-                            }
+                        QQC2.Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Focus mode")
+                            color: root.aiText
+                            font.pointSize: uiBodyPt
                         }
 
-                        onAccepted: root.sendMessage()
-
-                        Keys.onReturnPressed: {
-                            if (!(event.modifiers & Qt.ShiftModifier)) {
-                                root.sendMessage();
-                                event.accepted = true;
-                            }
-                        }
-                    }
-
-                    QQC2.Button {
-                        id: cancelButton
-                        visible: root.busy
-                        text: i18n("Cancel")
-                        flat: true
-                        implicitHeight: Kirigami.Units.gridUnit * 2.5
-                        implicitWidth: Kirigami.Units.gridUnit * 4.5
-                        font.pointSize: uiSmallPt
-                        onClicked: root.cancelCurrentQuery()
-
-                        contentItem: Text {
-                            text: cancelButton.text
-                            font: cancelButton.font
-                            color: root.aiError
+                        QQC2.Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Same chat — press Exit or Esc in fullscreen to restore here")
+                            color: root.aiMuted
+                            font.pointSize: uiSmallPt
                             horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            wrapMode: Text.WordWrap
+                            width: parent.width * 0.85
                         }
 
-                        background: Rectangle {
-                            radius: uiRadius - 2
-                            color: Qt.rgba(1, 0.42, 0.47, 0.12)
-                            border.color: Qt.rgba(1, 0.42, 0.47, 0.35)
-                            border.width: 1
-                        }
-                    }
+                        QQC2.Button {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: i18n("Open focus mode")
+                            flat: true
+                            onClicked: root.openImmersive()
 
-                    QQC2.Button {
-                        id: resumeButton
-                        visible: root.canResume && !root.busy
-                        text: i18n("Resume")
-                        flat: true
-                        implicitHeight: Kirigami.Units.gridUnit * 2.5
-                        implicitWidth: Kirigami.Units.gridUnit * 4.5
-                        font.pointSize: uiSmallPt
-                        onClicked: root.resumeCurrentQuery()
-
-                        contentItem: Text {
-                            text: resumeButton.text
-                            font: resumeButton.font
-                            color: root.aiGlow
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        background: Rectangle {
-                            radius: uiRadius - 2
-                            color: Qt.rgba(0.43, 0.78, 1.0, 0.1)
-                            border.color: root.aiBorder
-                            border.width: 1
-                        }
-                    }
-
-                    QQC2.Button {
-                        id: sendButton
-                        text: i18n("Send")
-                        enabled: !root.busy && inputField.text.trim().length > 0
-                        flat: true
-                        implicitHeight: Kirigami.Units.gridUnit * 2.5
-                        implicitWidth: Kirigami.Units.gridUnit * 4
-                        font.pointSize: uiSmallPt
-                        onClicked: root.sendMessage()
-
-                        contentItem: Text {
-                            text: sendButton.text
-                            font: sendButton.font
-                            color: sendButton.enabled ? "#061018" : root.aiMuted
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        background: Rectangle {
-                            radius: uiRadius - 2
-                            opacity: sendButton.enabled ? 1 : 0.45
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0; color: Qt.rgba(0.38, 0.72, 1.0, 0.85) }
-                                GradientStop { position: 1; color: Qt.rgba(0.52, 0.62, 0.98, 0.8) }
+                            background: Rectangle {
+                                radius: uiRadius - 2
+                                color: Qt.rgba(0.43, 0.78, 1.0, 0.1)
+                                border.color: root.aiBorder
+                                border.width: 1
                             }
-                            border.color: Qt.rgba(1, 1, 1, 0.18)
-                            border.width: 1
                         }
                     }
-                }
-
-                Loader {
-                    id: chatBusyLoader
-                    Layout.alignment: Qt.AlignHCenter
-                    active: root.busy
-                    visible: root.busy
-                    source: "ModernLoader.qml"
-                    onLoaded: {
-                        item.variant = "dots";
-                        item.accentColor = root.aiGlow;
-                    }
-                }
-
-                Binding {
-                    target: chatBusyLoader.item
-                    property: "running"
-                    value: root.busy
-                    when: chatBusyLoader.item !== null
                 }
             }
 
@@ -913,5 +873,10 @@ Item {
                 }
             }
         }
+    }
+
+    Component {
+        id: immersiveComponent
+        ImmersiveWindow {}
     }
 }
