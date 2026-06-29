@@ -5,6 +5,12 @@ import type {
 } from "@cursor/sdk";
 
 import type { AmeliaAgent } from "./agent.js";
+import { withAgentBusyRecovery } from "./agent-busy.js";
+import { ChatCancelledError } from "./errors.js";
+import {
+  registerActiveRun,
+  unregisterActiveRun,
+} from "./runs.js";
 
 type Collector = {
   reset: () => void;
@@ -73,19 +79,52 @@ export async function runChatTurn(
   agent: AmeliaAgent,
   prompt: string,
   onChunk?: (text: string) => void,
+  chatId?: string,
+): Promise<string> {
+  return withAgentBusyRecovery(agent.agentId, () =>
+    runChatTurnOnce(agent, prompt, onChunk, chatId),
+  );
+}
+
+async function runChatTurnOnce(
+  agent: AmeliaAgent,
+  prompt: string,
+  onChunk?: (text: string) => void,
+  chatId?: string,
 ): Promise<string> {
   const collector = createStreamingCollector(onChunk);
   collector.reset();
 
   const run = await agent.send(prompt);
-  for await (const event of run.stream()) {
-    collector.handleEvent(event);
-  }
-  const result = await run.wait();
-  if (result.status === "error") {
-    throw new Error("agent run failed");
+  if (chatId) {
+    registerActiveRun(chatId, run);
   }
 
-  const reply = collector.getText().trim();
-  return reply || "(no reply)";
+  try {
+    for await (const event of run.stream()) {
+      collector.handleEvent(event);
+    }
+    const result = await run.wait();
+    if (result.status === "cancelled") {
+      throw new ChatCancelledError(collector.getText().trim());
+    }
+    if (result.status === "error") {
+      throw new Error("agent run failed");
+    }
+
+    const reply = collector.getText().trim();
+    return reply || "(no reply)";
+  } catch (err) {
+    if (err instanceof ChatCancelledError) {
+      throw err;
+    }
+    if (run.status === "cancelled") {
+      throw new ChatCancelledError(collector.getText().trim());
+    }
+    throw err;
+  } finally {
+    if (chatId) {
+      unregisterActiveRun(chatId);
+    }
+  }
 }

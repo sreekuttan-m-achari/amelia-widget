@@ -9,6 +9,7 @@ import {
 } from "@cursor/sdk";
 
 import { agentCwd } from "./persona.js";
+import { loadMcpServersForSdk } from "./config/mcp.js";
 import { loadPersistedAgentId, persistAgentId } from "./session.js";
 
 export type AmeliaAgent = Awaited<ReturnType<typeof Agent.create>>;
@@ -47,6 +48,11 @@ async function localOptions(cwd: string) {
   };
 }
 
+function sdkMcpServers(cwd: string) {
+  const mcpServers = loadMcpServersForSdk(undefined, cwd);
+  return mcpServers ? { mcpServers } : {};
+}
+
 export async function createAgent(): Promise<AmeliaAgent> {
   const apiKey = process.env.CURSOR_API_KEY?.trim();
   if (!apiKey) {
@@ -58,12 +64,18 @@ export async function createAgent(): Promise<AmeliaAgent> {
   const cwd = agentCwd();
   const local = await localOptions(cwd);
   const model = { id: "composer-2" as const };
+  const mcp = sdkMcpServers(cwd);
   const persistedId = loadPersistedAgentId(cwd);
 
   try {
     if (persistedId) {
       try {
-        const agent = await Agent.resume(persistedId, { apiKey, local, model });
+        const agent = await Agent.resume(persistedId, {
+          apiKey,
+          local,
+          model,
+          ...mcp,
+        });
         resumed = true;
         console.error(`[amelia-agent] Resumed session ${agent.agentId}`);
         return agent;
@@ -79,6 +91,7 @@ export async function createAgent(): Promise<AmeliaAgent> {
       apiKey,
       model,
       local,
+      ...mcp,
     });
     resumed = false;
     persistAgentId(cwd, agent.agentId);

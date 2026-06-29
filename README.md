@@ -51,13 +51,32 @@ Stop the manual `npm start` terminal if the service is running (same port).
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health` | Liveness + persona flags |
-| `POST /chat` | `{"message":"..."}` → `{"reply":"..."}` |
-| `POST /chat/stream` | SSE stream: `chunk` + `done` events |
+| `POST /chat` | `{"message":"...","id":"..."}` → `{"reply":"..."}` or `{"cancelled":true,"reply":"..."}` |
+| `POST /chat/cancel` | `{"id":"..."}` — stop the in-flight turn for that id |
+| `POST /chat/stream` | SSE stream: `chunk`, `done`, or `cancelled` events |
 | `ws://127.0.0.1:8787` | WebSocket chat with streaming chunks |
 
 ### Persona (`SOUL.md`)
 
 On startup the server loads `SOUL.md` (or `PROFILE.md`) and optional `USER.md`, then sends a warm-up turn so Amelia adopts that voice for the session. Override paths with `AGENT_SOUL_PATH` / `AGENT_USER_PATH` in `.env`.
+
+### MCP tools (extensible)
+
+Add capabilities by editing **`server/.cursor/mcp.json`** (same format as Cursor IDE / `cursor-openapi`):
+
+```bash
+cd server
+cp .cursor/mcp.json.sample .cursor/mcp.json
+# edit .cursor/mcp.json — add servers under mcpServers
+systemctl --user restart amelia-widget
+```
+
+- **`${workspaceFolder}`** resolves to `AMELIA_AGENT_CWD` or `server/` cwd
+- **`${env:VAR_NAME}`** reads from `server/.env`
+- **`MCP_CONFIG_PATH`** — optional override (relative to agent cwd or absolute)
+- Reuse another project’s config, e.g. `MCP_CONFIG_PATH=/path/to/cursor-openapi/.cursor/mcp.json` with `AMELIA_AGENT_CWD` set to that repo if scripts use `${workspaceFolder}`
+
+`GET /health` includes `mcp.servers` when MCP loaded successfully.
 
 ### Debug mode
 
@@ -77,7 +96,7 @@ killall plasmashell && kstart5 plasmashell &
 
 Remove and re-add the widget. Look for **v0.4** (blue **●** when WebSocket streaming is active).
 
-Uses WebSocket for streaming when available; falls back to HTTP `POST /chat`.
+Uses WebSocket for streaming when available; falls back to HTTP `POST /chat`. While a reply is in progress, **Cancel** stops the agent; **Resume** resends the last message.
 
 ## Uninstall
 

@@ -4,6 +4,7 @@ import {
   logStreamChunk,
   type ConversationTransport,
 } from "./debug.js";
+import { isChatCancelled } from "./errors.js";
 import { waitForWarmup } from "./warmup.js";
 import { runChatTurn } from "./stream.js";
 
@@ -17,10 +18,15 @@ export async function handleChatTurn(
   await waitForWarmup();
   const started = Date.now();
   try {
-    const reply = await runChatTurn(agent, message, (text) => {
-      logStreamChunk(id, text);
-      onChunk?.(text);
-    });
+    const reply = await runChatTurn(
+      agent,
+      message,
+      (text) => {
+        logStreamChunk(id, text);
+        onChunk?.(text);
+      },
+      id,
+    );
     logConversation({
       transport,
       id,
@@ -30,6 +36,16 @@ export async function handleChatTurn(
     });
     return reply;
   } catch (err) {
+    if (isChatCancelled(err)) {
+      logConversation({
+        transport,
+        id,
+        user: message,
+        error: "cancelled",
+        durationMs: Date.now() - started,
+      });
+      throw err;
+    }
     const error = err instanceof Error ? err.message : String(err);
     logConversation({
       transport,

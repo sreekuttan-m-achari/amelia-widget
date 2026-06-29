@@ -4,3 +4,4 @@ dist/
 .amelia-conversations.ndjson
 SOUL.md
 USER.md
+.cursor/mcp.json

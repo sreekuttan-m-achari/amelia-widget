@@ -4,11 +4,15 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import type { AmeliaAgent } from "./agent.js";
 import { handleChatTurn } from "./chat.js";
+import { getMcpServerNames } from "./config/mcp.js";
+import { isChatCancelled } from "./errors.js";
 import { personaStatus } from "./persona.js";
+import { cancelActiveRun } from "./runs.js";
 import { getGreeting, isWarm, onGreetingReady } from "./warmup.js";
 
 type Inbound =
   | { type: "chat"; id?: string; message?: string }
+  | { type: "cancel"; id?: string }
   | { type: "ping" };
 
 type Outbound =
@@ -17,6 +21,7 @@ type Outbound =
   | { type: "pong" }
   | { type: "chunk"; id: string; text: string }
   | { type: "done"; id: string; reply: string }
+  | { type: "cancelled"; id: string; reply?: string }
   | { type: "error"; id?: string; error: string };
 
 function wsHost(): string {
@@ -105,15 +110,38 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
       if (req.method === "GET" && req.url === "/health") {
         const persona = personaStatus();
         const greeting = getGreeting();
+        const mcpServers = getMcpServerNames();
         jsonResponse(res, 200, {
           ok: true,
-          version: "0.5.0",
+          version: "0.6.0",
           sessionId: agent.agentId,
           warm: isWarm(),
           greeting,
           persona: Boolean(persona.soulPath),
           userProfile: Boolean(persona.userPath),
+          mcp: {
+            loaded: mcpServers.length > 0,
+            servers: mcpServers,
+          },
         });
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/chat/cancel") {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch {
+          jsonResponse(res, 400, { error: "invalid JSON body" });
+          return;
+        }
+        const id = (body as { id?: string }).id?.trim() ?? "";
+        if (!id) {
+          jsonResponse(res, 400, { error: "id is required" });
+          return;
+        }
+        const cancelled = await cancelActiveRun(id);
+        jsonResponse(res, 200, { ok: true, cancelled, id });
         return;
       }
 
@@ -147,8 +175,16 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
           );
           sseWrite(res, { type: "done", id, reply });
         } catch (err) {
-          const error = err instanceof Error ? err.message : String(err);
-          sseWrite(res, { type: "error", id, error });
+          if (isChatCancelled(err)) {
+            sseWrite(res, {
+              type: "cancelled",
+              id,
+              reply: err.partialReply,
+            });
+          } else {
+            const error = err instanceof Error ? err.message : String(err);
+            sseWrite(res, { type: "error", id, error });
+          }
         }
         res.end();
         return;
@@ -163,16 +199,25 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
           return;
         }
         const message = (body as { message?: string }).message?.trim() ?? "";
+        const id = (body as { id?: string }).id?.trim() || "http";
         if (!message) {
           jsonResponse(res, 400, { error: "message is required" });
           return;
         }
         try {
           const reply = await enqueue(() =>
-            handleChatTurn(agent, "http", "http", message),
+            handleChatTurn(agent, "http", id, message),
           );
-          jsonResponse(res, 200, { reply });
+          jsonResponse(res, 200, { reply, id });
         } catch (err) {
+          if (isChatCancelled(err)) {
+            jsonResponse(res, 200, {
+              cancelled: true,
+              id,
+              reply: err.partialReply,
+            });
+            return;
+          }
           const error = err instanceof Error ? err.message : String(err);
           jsonResponse(res, 500, { error });
         }
@@ -224,6 +269,19 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
           return;
         }
 
+        if (parsed.type === "cancel") {
+          const id = parsed.id?.trim() ?? "";
+          if (!id) {
+            send(ws, { type: "error", error: "id is required" });
+            return;
+          }
+          const cancelled = await cancelActiveRun(id);
+          if (!cancelled) {
+            send(ws, { type: "error", id, error: "no active run for this id" });
+          }
+          return;
+        }
+
         if (parsed.type !== "chat") {
           send(ws, { type: "error", error: "unknown message type" });
           return;
@@ -244,8 +302,16 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
           );
           send(ws, { type: "done", id, reply });
         } catch (err) {
-          const error = err instanceof Error ? err.message : String(err);
-          send(ws, { type: "error", id, error });
+          if (isChatCancelled(err)) {
+            send(ws, {
+              type: "cancelled",
+              id,
+              reply: err.partialReply,
+            });
+          } else {
+            const error = err instanceof Error ? err.message : String(err);
+            send(ws, { type: "error", id, error });
+          }
         }
       })();
     });
@@ -257,7 +323,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
   });
 
   console.error(`[amelia-server] ws://${host}:${port}`);
-  console.error(`[amelia-server] GET /health  POST /chat  POST /chat/stream`);
+  console.error(`[amelia-server] GET /health  POST /chat  POST /chat/cancel  POST /chat/stream`);
 
   await new Promise<void>((resolve) => {
     const shutdown = (): void => {

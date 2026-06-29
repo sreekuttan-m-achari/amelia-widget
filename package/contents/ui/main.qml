@@ -59,6 +59,7 @@ Item {
     }
     readonly property string healthUrl: apiBase + "/health"
     readonly property string chatUrl: apiBase + "/chat"
+    readonly property string chatCancelUrl: apiBase + "/chat/cancel"
 
     property bool busy: false
     property bool serverReady: false
@@ -74,6 +75,9 @@ Item {
     property bool hasUserProfile: false
     property string pendingId: ""
     property string streamingReply: ""
+    property string lastQueryText: ""
+    property bool canResume: false
+    property var activeHttpXhr: null
 
     readonly property string statusLabel: {
         if (connectionFailed) {
@@ -316,29 +320,98 @@ Item {
         socket.active = false;
     }
 
+    function formatCancelledReply(partial) {
+        var stopped = qsTr("Stopped.");
+        if (partial && partial.length > 0) {
+            return partial + "\n\n— " + stopped;
+        }
+        return stopped;
+    }
+
+    function onQueryCancelled(partial) {
+        busy = false;
+        canResume = lastQueryText.length > 0;
+        finalizePendingAssistant(formatCancelledReply(partial || streamingReply));
+        streamingReply = "";
+        pendingId = "";
+        activeHttpXhr = null;
+    }
+
+    function cancelCurrentQuery() {
+        if (!busy || pendingId.length === 0) {
+            return;
+        }
+        var id = pendingId;
+        if (socket.status === WebSocket.Open) {
+            socket.sendTextMessage(JSON.stringify({ type: "cancel", id: id }));
+            return;
+        }
+        var cxhr = new XMLHttpRequest();
+        cxhr.open("POST", chatCancelUrl);
+        cxhr.setRequestHeader("Content-Type", "application/json");
+        cxhr.send(JSON.stringify({ id: id }));
+    }
+
+    function resumeCurrentQuery() {
+        if (busy || !canResume || lastQueryText.length === 0) {
+            return;
+        }
+        canResume = false;
+        busy = true;
+        streamingReply = "";
+        pendingId = String(Date.now());
+        appendPendingAssistant();
+
+        if (socket.status === WebSocket.Open) {
+            socket.sendTextMessage(JSON.stringify({
+                type: "chat",
+                id: pendingId,
+                message: lastQueryText
+            }));
+            return;
+        }
+
+        sendViaHttp(lastQueryText);
+    }
+
     function sendViaHttp(text) {
+        if (activeHttpXhr) {
+            activeHttpXhr.abort();
+            activeHttpXhr = null;
+        }
         var xhr = new XMLHttpRequest();
+        activeHttpXhr = xhr;
         xhr.open("POST", chatUrl);
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) {
                 return;
             }
-            root.busy = false;
+            activeHttpXhr = null;
+            if (xhr.status === 0) {
+                return;
+            }
+            busy = false;
             if (xhr.status === 200) {
                 try {
                     var body = JSON.parse(xhr.responseText);
+                    if (body.cancelled) {
+                        onQueryCancelled(body.reply || "");
+                        return;
+                    }
                     finalizePendingAssistant(body.reply || qsTr("(empty reply)"));
+                    pendingId = "";
+                    streamingReply = "";
                     return;
                 } catch (e) {
                 }
             }
-            var err = xhr.status === 0
-                ? qsTr("Cannot reach %1 — is the service running?").arg(apiBase)
-                : qsTr("Request failed (HTTP %1)").arg(xhr.status);
+            var err = qsTr("Request failed (HTTP %1)").arg(xhr.status);
             finalizePendingAssistant(err);
+            pendingId = "";
+            streamingReply = "";
         };
-        xhr.send(JSON.stringify({ message: text }));
+        xhr.send(JSON.stringify({ message: text, id: pendingId }));
     }
 
     function sendMessage() {
@@ -350,6 +423,8 @@ Item {
         inputField.text = "";
         busy = true;
         hasUserChatted = true;
+        canResume = false;
+        lastQueryText = text;
         streamingReply = "";
         pendingId = String(Date.now());
         appendUserMessage(text);
@@ -398,6 +473,7 @@ Item {
 
         if (body.type === "done" && String(body.id) === pendingId) {
             busy = false;
+            canResume = false;
             var finalReply = body.reply || streamingReply || qsTr("(empty reply)");
             finalizePendingAssistant(finalReply);
             streamingReply = "";
@@ -405,8 +481,14 @@ Item {
             return;
         }
 
+        if (body.type === "cancelled" && String(body.id) === pendingId) {
+            onQueryCancelled(body.reply || streamingReply);
+            return;
+        }
+
         if (body.type === "error" && (!body.id || String(body.id) === pendingId)) {
             busy = false;
+            canResume = lastQueryText.length > 0;
             finalizePendingAssistant(body.error || qsTr("Unknown error"));
             streamingReply = "";
             pendingId = "";
@@ -618,6 +700,58 @@ Item {
                                 root.sendMessage();
                                 event.accepted = true;
                             }
+                        }
+                    }
+
+                    QQC2.Button {
+                        id: cancelButton
+                        visible: root.busy
+                        text: i18n("Cancel")
+                        flat: true
+                        implicitHeight: Kirigami.Units.gridUnit * 2.5
+                        implicitWidth: Kirigami.Units.gridUnit * 4.5
+                        font.pointSize: uiSmallPt
+                        onClicked: root.cancelCurrentQuery()
+
+                        contentItem: Text {
+                            text: cancelButton.text
+                            font: cancelButton.font
+                            color: root.aiError
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: uiRadius - 2
+                            color: Qt.rgba(1, 0.42, 0.47, 0.12)
+                            border.color: Qt.rgba(1, 0.42, 0.47, 0.35)
+                            border.width: 1
+                        }
+                    }
+
+                    QQC2.Button {
+                        id: resumeButton
+                        visible: root.canResume && !root.busy
+                        text: i18n("Resume")
+                        flat: true
+                        implicitHeight: Kirigami.Units.gridUnit * 2.5
+                        implicitWidth: Kirigami.Units.gridUnit * 4.5
+                        font.pointSize: uiSmallPt
+                        onClicked: root.resumeCurrentQuery()
+
+                        contentItem: Text {
+                            text: resumeButton.text
+                            font: resumeButton.font
+                            color: root.aiGlow
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: uiRadius - 2
+                            color: Qt.rgba(0.43, 0.78, 1.0, 0.1)
+                            border.color: root.aiBorder
+                            border.width: 1
                         }
                     }
 
