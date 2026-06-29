@@ -1,5 +1,19 @@
 {
   "mcpServers": {
+    "memory": {
+      "command": "node",
+      "args": ["${workspaceFolder}/node_modules/@modelcontextprotocol/server-memory/dist/index.js"]
+    },
+    "home-assistant-rest": {
+      "command": "node",
+      "args": ["${workspaceFolder}/scripts/ha-rest-mcp.mjs"],
+      "env": {
+        "HA_BASE_URL": "${env:HA_BASE_URL}",
+        "HA_MCP_HTTP_URL": "${env:HA_MCP_HTTP_URL}",
+        "HA_API_ACCESS_TOKEN": "${env:HA_API_ACCESS_TOKEN}",
+        "API_ACCESS_TOKEN": "${env:HA_API_ACCESS_TOKEN}"
+      }
+    },
     "mcp-server-fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"]
