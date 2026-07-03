@@ -4,6 +4,10 @@ Local desktop assistant for Linux: a **Node.js backend** (Cursor SDK agent + MCP
 
 All UIs talk to the same API on `http://127.0.0.1:8787` — install the server once, then pick the frontend for your desktop.
 
+![Amelia chat panel on COSMIC desktop](docs/amelia-screenshot.jpg)
+
+*Amelia panel applet on Pop!_OS / COSMIC — live status, message bubbles, and streaming chat.*
+
 ## Choose your desktop UI
 
 | Desktop | Frontend | Install |
