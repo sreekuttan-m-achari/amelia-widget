@@ -1,12 +1,30 @@
 # Amelia widget
 
-Local desktop assistant for Linux: a **Node.js backend** (Cursor SDK agent + MCP tools) and **desktop chat frontends** for KDE Plasma, COSMIC, and GNOME.
+A local desktop assistant for Linux — embedded in your desktop shell, not another app window.
 
-All UIs talk to the same API on `http://127.0.0.1:8787` — install the server once, then pick the frontend for your desktop.
+Amelia pairs a **Node.js backend** (powered by the [Cursor SDK](https://www.npmjs.com/package/@cursor/sdk) and MCP tools) with native chat frontends for **KDE Plasma**, **COSMIC**, and **GNOME**. Install the server once, pick the UI for your desktop, and talk to your agent from the panel.
 
 ![Amelia chat panel on COSMIC desktop](docs/amelia-screenshot.jpg)
 
-*Amelia panel applet on Pop!_OS / COSMIC — live status, message bubbles, and streaming chat.*
+*Amelia on Pop!_OS / COSMIC — live status, message bubbles, and streaming chat.*
+
+## Why this exists
+
+Projects like [OpenClaw](https://github.com/openclaw/openclaw) and Hermes showed what custom agentic assistants can feel like — always available, tool-connected, and shaped around your workflow. The question that started Amelia was simpler:
+
+> If you already pay for a **Cursor subscription** with access to multiple models, can that be turned into your own agent system instead of living only inside the IDE?
+
+Cursor ships an official **SDK** (`@cursor/sdk`). This repo is what came out of experimenting with it: a small local API, a persistent agent session, MCP integrations (Home Assistant, memory, fetch, and anything you wire up), and desktop widgets so the assistant lives **in the OS** — panel icon, popup chat, systemd service — rather than as a separate application you alt-tab to.
+
+Amelia is early and personal, but the shape is deliberate: **leverage what you already have, keep it local, make it native.**
+
+### Roadmap
+
+- More desktop platforms and shell integrations
+- Richer tool / MCP workflows
+- Deeper OS hooks (notifications, quick actions, voice — TBD)
+
+**Want in?** Fork it, clone it, make it yours. Explore the code, open issues, send PRs — contributions welcome.
 
 ## Choose your desktop UI
 
@@ -17,6 +35,8 @@ All UIs talk to the same API on `http://127.0.0.1:8787` — install the server o
 | **GNOME** (Ubuntu 24.04+, Fedora 39+) | Shell extension (`gnome-extension/`) | `cd gnome-extension && ./install.sh` |
 
 **GNOME Shell 45+** is required for the extension. Ubuntu 22.04 (GNOME 42–43) is not supported without a legacy port.
+
+All frontends share one backend at `http://127.0.0.1:8787`.
 
 ## Layout
 
@@ -261,3 +281,15 @@ rm -f ~/.local/share/applications/com.amelia.CosmicApplet.desktop
 # GNOME
 rm -rf ~/.local/share/gnome-shell/extensions/amelia-widget@amelia.local
 ```
+
+---
+
+## Contributing
+
+1. **Fork** the repo and create a branch for your change.
+2. Keep secrets out of git — use `server/.env-sample` and `mcp.json.sample` as templates only.
+3. Open a **pull request** with a short description of what you changed and why.
+
+Ideas we'd love to see: new desktop targets (XFCE, macOS menu bar, Windows tray), better MCP presets, accessibility, i18n, or tighter desktop integration. If you're building something on top of Amelia, we'd enjoy hearing about it.
+
+**License:** GPL-2.0+ (see plasmoid metadata). Fork freely and make it your own.
