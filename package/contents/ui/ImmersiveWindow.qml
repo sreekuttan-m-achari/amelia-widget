@@ -56,7 +56,7 @@ Window {
     GlassPanel {
         anchors.fill: parent
         fillOpacity: 0.62
-        glow: widget ? widget.aiGlow : "#6ec8ff"
+        glow: widget ? widget.aiGlow : "#9DD9F3"
         radius: 0
     }
 
@@ -99,7 +99,7 @@ Window {
             QQC2.Label {
                 visible: widget && widget.statusLabel.length > 0
                 text: widget ? widget.statusLabel : ""
-                color: widget ? widget.statusColor : "#6ec8ff"
+                color: widget ? widget.statusColor : "#9DD9F3"
                 font.pointSize: widget ? widget.uiCaptionPt : 10
                 font.capitalization: Font.AllSmallCaps
                 padding: 8
@@ -131,7 +131,7 @@ Window {
                     id: exitLabel
                     text: exitButton.text
                     font: exitButton.font
-                    color: widget ? widget.aiGlow : "#6ec8ff"
+                    color: widget ? widget.aiGlow : "#9DD9F3"
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

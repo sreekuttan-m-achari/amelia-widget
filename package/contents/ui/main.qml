@@ -21,15 +21,17 @@ Item {
     Plasmoid.preferredRepresentation: Plasmoid.fullRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
-    readonly property color aiGlow: "#6ec8ff"
-    readonly property color aiGlowSoft: Qt.rgba(0.43, 0.78, 1.0, 0.35)
-    readonly property color aiViolet: Qt.rgba(0.62, 0.48, 0.98, 0.18)
-    readonly property color aiGlass: Qt.rgba(0.04, 0.07, 0.13, 0.55)
-    readonly property color aiGlassHi: Qt.rgba(0.08, 0.12, 0.2, 0.42)
-    readonly property color aiBorder: Qt.rgba(0.43, 0.78, 1.0, 0.2)
-    readonly property color aiText: Qt.rgba(0.93, 0.97, 1.0, 0.94)
-    readonly property color aiMuted: Qt.rgba(0.62, 0.72, 0.86, 0.78)
-    readonly property color aiError: "#ff6b7a"
+    AriaTokens { id: ariaTheme }
+
+    readonly property color aiGlow: ariaTheme.aiGlow
+    readonly property color aiGlowSoft: ariaTheme.aiGlowSoft
+    readonly property color aiViolet: ariaTheme.aiViolet
+    readonly property color aiGlass: ariaTheme.aiGlass
+    readonly property color aiGlassHi: ariaTheme.aiGlassHi
+    readonly property color aiBorder: ariaTheme.aiBorder
+    readonly property color aiText: ariaTheme.aiText
+    readonly property color aiMuted: ariaTheme.aiMuted
+    readonly property color aiError: ariaTheme.aiError
 
     // Balanced density — slightly tighter than default, not cramped
     readonly property real uiBodyPt: Kirigami.Theme.defaultFont.pointSize - 0.5
@@ -37,10 +39,10 @@ Item {
     readonly property real uiCaptionPt: Kirigami.Theme.smallFont.pointSize - 1
     readonly property real uiPad: Kirigami.Units.smallSpacing + 2
     readonly property real uiGap: Kirigami.Units.smallSpacing + 1
-    readonly property real uiRadius: 12
+    readonly property real uiRadius: ariaTheme.radiusPanel
 
-    readonly property color userAccent: "#6ec8ff"
-    readonly property color agentAccent: "#b8a8ff"
+    readonly property color userAccent: ariaTheme.userAccent
+    readonly property color agentAccent: ariaTheme.agentAccent
 
     readonly property string apiBase: {
         var url = plasmoid.configuration.apiUrl || "http://127.0.0.1:8787";

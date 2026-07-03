@@ -21,12 +21,12 @@ Item {
     }
     readonly property color labelAccent: {
         if (isUser) {
-            return "#6ec8ff";
+            return "#9DD9F3";
         }
         if (isSystem) {
             return "#ff8a96";
         }
-        return "#b8a8ff";
+        return "#C4B5FD";
     }
     readonly property color bubbleFill: {
         if (isUser) {

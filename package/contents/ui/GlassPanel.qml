@@ -6,8 +6,8 @@ Item {
 
     property alias radius: panel.radius
     property real fillOpacity: 0.58
-    property color tint: "#0a0e18"
-    property color glow: "#6ec8ff"
+    property color tint: "#161822"
+    property color glow: "#9DD9F3"
     property bool showShimmer: true
 
     implicitWidth: panel.width
