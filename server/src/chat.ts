@@ -1,3 +1,4 @@
+import { resetAgentSession } from "./agent-manager.js";
 import type { AmeliaAgent } from "./agent.js";
 import {
   logConversation,
@@ -6,7 +7,7 @@ import {
 } from "./debug.js";
 import { isChatCancelled } from "./errors.js";
 import { waitForWarmup } from "./warmup.js";
-import { runChatTurn } from "./stream.js";
+import { isRecoverableRunError, runChatTurn } from "./stream.js";
 
 export async function handleChatTurn(
   agent: AmeliaAgent,
@@ -14,6 +15,7 @@ export async function handleChatTurn(
   id: string,
   message: string,
   onChunk?: (text: string) => void,
+  allowSessionReset = true,
 ): Promise<string> {
   await waitForWarmup();
   const started = Date.now();
@@ -45,6 +47,21 @@ export async function handleChatTurn(
         durationMs: Date.now() - started,
       });
       throw err;
+    }
+    if (allowSessionReset && isRecoverableRunError(err)) {
+      console.error(
+        `[amelia-agent] Run failed (${err instanceof Error ? err.message : err}); resetting session and retrying once`,
+      );
+      const fresh = await resetAgentSession();
+      await waitForWarmup();
+      return handleChatTurn(
+        fresh,
+        transport,
+        id,
+        message,
+        onChunk,
+        false,
+      );
     }
     const error = err instanceof Error ? err.message : String(err);
     logConversation({

@@ -27,3 +27,10 @@ export function loadPersistedAgentId(cwd: string): string | undefined {
 export function persistAgentId(cwd: string, agentId: string): void {
   writeFileSync(agentIdPath(cwd), `${agentId}\n`, "utf8");
 }
+
+export function clearPersistedAgentId(cwd: string): void {
+  const path = agentIdPath(cwd);
+  if (existsSync(path)) {
+    writeFileSync(path, "", "utf8");
+  }
+}

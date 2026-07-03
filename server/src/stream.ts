@@ -1,5 +1,7 @@
 import type {
   LocalRunStreamSdkMessageEvent,
+  Run,
+  RunResult,
   SDKAssistantMessage,
   SDKMessage,
 } from "@cursor/sdk";
@@ -75,6 +77,27 @@ export function createStreamingCollector(
   };
 }
 
+function describeRunFailure(result: RunResult, run: Run): string {
+  const detail = result.result?.trim() || run.result?.trim();
+  if (detail) {
+    return detail;
+  }
+  return `agent run failed (${result.id})`;
+}
+
+export function isRecoverableRunError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  const message = err.message.toLowerCase();
+  return (
+    message.includes("agent run failed") ||
+    message.includes("network request failed") ||
+    message.includes("network error") ||
+    message.includes("service unavailable")
+  );
+}
+
 export async function runChatTurn(
   agent: AmeliaAgent,
   prompt: string,
@@ -109,7 +132,9 @@ async function runChatTurnOnce(
       throw new ChatCancelledError(collector.getText().trim());
     }
     if (result.status === "error") {
-      throw new Error("agent run failed");
+      const message = describeRunFailure(result, run);
+      console.error(`[amelia-run] error run=${result.id}: ${message}`);
+      throw new Error(message);
     }
 
     const reply = collector.getText().trim();

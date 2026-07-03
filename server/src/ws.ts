@@ -2,6 +2,7 @@ import http, { type IncomingMessage } from "node:http";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { getAgent } from "./agent-manager.js";
 import type { AmeliaAgent } from "./agent.js";
 import { handleChatTurn } from "./chat.js";
 import { getMcpServerNames } from "./config/mcp.js";
@@ -94,6 +95,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
   const host = wsHost();
   const port = wsPort();
   const enqueue = createSerialQueue();
+  const currentAgent = () => getAgent();
 
   const httpServer = http.createServer((req, res) => {
     void (async () => {
@@ -114,7 +116,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
         jsonResponse(res, 200, {
           ok: true,
           version: "0.6.0",
-          sessionId: agent.agentId,
+          sessionId: currentAgent().agentId,
           warm: isWarm(),
           greeting,
           persona: Boolean(persona.soulPath),
@@ -169,7 +171,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
 
         try {
           const reply = await enqueue(() =>
-            handleChatTurn(agent, "http-stream", id, message, (text) => {
+            handleChatTurn(currentAgent(), "http-stream", id, message, (text) => {
               sseWrite(res, { type: "chunk", id, text });
             }),
           );
@@ -206,7 +208,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
         }
         try {
           const reply = await enqueue(() =>
-            handleChatTurn(agent, "http", id, message),
+            handleChatTurn(currentAgent(), "http", id, message),
           );
           jsonResponse(res, 200, { reply, id });
         } catch (err) {
@@ -241,7 +243,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
       type: "ready",
       warm: isWarm(),
       greeting: getGreeting(),
-      sessionId: agent.agentId,
+      sessionId: currentAgent().agentId,
     });
   }
 
@@ -296,7 +298,7 @@ export async function startServer(agent: AmeliaAgent): Promise<void> {
 
         try {
           const reply = await enqueue(() =>
-            handleChatTurn(agent, "ws", id, message, (text) => {
+            handleChatTurn(currentAgent(), "ws", id, message, (text) => {
               send(ws, { type: "chunk", id, text });
             }),
           );

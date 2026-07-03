@@ -13,7 +13,10 @@ Item {
     readonly property real smallPt: host ? (immersive ? host.uiSmallPt + 0.5 : host.uiSmallPt) : 9
     readonly property real pad: host ? (immersive ? host.uiPad + 4 : host.uiPad) : 8
     readonly property real gap: host ? (immersive ? host.uiGap + 2 : host.uiGap) : 6
-    readonly property real radius: host ? (immersive ? host.uiRadius + 2 : host.uiRadius) : 12
+    readonly property real radius: host
+        ? (immersive ? host.uiRadius : Math.max(8, host.uiRadius - 4))
+        : 8
+    readonly property real fieldRadius: immersive ? 8 : 6
 
     function scrollToEnd() {
         Qt.callLater(function() {
@@ -41,6 +44,7 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.bottomMargin: immersive ? 0 : 2
         spacing: gap
         enabled: host !== null
 
@@ -93,7 +97,7 @@ Item {
             QQC2.TextField {
                 id: inputField
                 Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.Units.gridUnit * (immersive ? 3.2 : 2.5)
+                Layout.preferredHeight: Kirigami.Units.gridUnit * (immersive ? 2.8 : 2.15)
                 placeholderText: i18n("Message Amelia…")
                 enabled: host && !host.busy
                 text: host ? host.composeText : ""
@@ -101,10 +105,10 @@ Item {
                 placeholderTextColor: host ? host.aiMuted : "#8899aa"
                 font.pointSize: bodyPt
                 selectByMouse: true
-                topPadding: immersive ? 10 : 6
-                bottomPadding: immersive ? 10 : 6
-                leftPadding: pad
-                rightPadding: pad
+                topPadding: immersive ? 8 : 5
+                bottomPadding: immersive ? 8 : 5
+                leftPadding: immersive ? pad : pad - 1
+                rightPadding: immersive ? pad : pad - 1
 
                 onTextChanged: {
                     if (host) {
@@ -113,7 +117,7 @@ Item {
                 }
 
                 background: Rectangle {
-                    radius: radius - 2
+                    radius: fieldRadius
                     color: Qt.rgba(0, 0, 0, 0.18)
                     border.width: inputField.activeFocus ? 1.5 : 1
                     border.color: inputField.activeFocus ? host.aiGlowSoft : host.aiBorder
@@ -190,8 +194,8 @@ Item {
                 text: i18n("Send")
                 enabled: !host.busy && inputField.text.trim().length > 0
                 flat: true
-                implicitHeight: Kirigami.Units.gridUnit * (immersive ? 3.2 : 2.5)
-                implicitWidth: Kirigami.Units.gridUnit * (immersive ? 5 : 4)
+                implicitHeight: Kirigami.Units.gridUnit * (immersive ? 2.5 : 2.15)
+                implicitWidth: Kirigami.Units.gridUnit * (immersive ? 4.5 : 3.8)
                 font.pointSize: smallPt
                 onClicked: workspace.submitMessage()
 

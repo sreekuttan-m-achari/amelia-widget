@@ -117,35 +117,34 @@ Window {
 
             QQC2.Button {
                 id: exitButton
-                text: i18n("Exit focus")
+                text: i18n("Exit")
                 flat: true
-                implicitHeight: Kirigami.Units.gridUnit * 2.8
+                implicitHeight: Kirigami.Units.gridUnit * 1.9
                 implicitWidth: Math.max(
-                    Kirigami.Units.gridUnit * 6.2,
-                    exitLabel.implicitWidth + Kirigami.Units.gridUnit * 2
+                    Kirigami.Units.gridUnit * 3.8,
+                    exitLabel.implicitWidth + Kirigami.Units.smallSpacing * 2
                 )
-                font.pointSize: widget ? widget.uiSmallPt + 0.5 : 11
-                font.weight: Font.Medium
+                font.pointSize: widget ? widget.uiCaptionPt : 10
                 onClicked: widget ? widget.closeImmersive() : (immersive.active = false)
 
                 contentItem: Text {
                     id: exitLabel
                     text: exitButton.text
                     font: exitButton.font
-                    color: widget ? widget.aiText : "#eef6ff"
+                    color: widget ? widget.aiGlow : "#6ec8ff"
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 
                 background: Rectangle {
-                    radius: 10
+                    radius: 6
                     color: exitButton.down
-                        ? Qt.rgba(0.43, 0.78, 1.0, 0.24)
+                        ? Qt.rgba(0.43, 0.78, 1.0, 0.2)
                         : (exitButton.hovered
-                            ? Qt.rgba(0.43, 0.78, 1.0, 0.16)
-                            : Qt.rgba(0.43, 0.78, 1.0, 0.1))
-                    border.color: widget ? widget.aiGlowSoft : Qt.rgba(0.43, 0.78, 1.0, 0.45)
-                    border.width: 1.5
+                            ? Qt.rgba(0.43, 0.78, 1.0, 0.14)
+                            : Qt.rgba(0.43, 0.78, 1.0, 0.08))
+                    border.color: widget ? widget.aiBorder : Qt.rgba(0.43, 0.78, 1.0, 0.35)
+                    border.width: 1
 
                     Behavior on color {
                         ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
@@ -156,7 +155,7 @@ Window {
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18n("Focus mode — press Esc or Exit focus to return to the desktop widget")
+            text: i18n("Focus mode — press Esc or Exit to return to the desktop widget")
             color: widget ? widget.aiMuted : "#8899aa"
             font.pointSize: widget ? widget.uiSmallPt : 10
             opacity: 0.85

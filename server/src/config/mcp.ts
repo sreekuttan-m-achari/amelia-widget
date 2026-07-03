@@ -119,6 +119,12 @@ export function loadMcpServersForSdk(
   configPath?: string,
   workspaceRoot: string = agentCwd(),
 ): Record<string, McpServerConfig> | undefined {
+  if (process.env.AMELIA_MCP_ENABLED?.trim() === "0") {
+    console.error("[mcp] disabled via AMELIA_MCP_ENABLED=0");
+    lastLoadedServerNames = [];
+    return undefined;
+  }
+
   const url = process.env.HA_MCP_HTTP_URL?.trim();
   const token = process.env.HA_API_ACCESS_TOKEN?.trim();
   const forceFile = process.env.CURSOR_SDK_MCP_MODE === "file";

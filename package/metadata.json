@@ -16,7 +16,7 @@
     "ServiceTypes": [
       "Plasma/Applet"
     ],
-    "Version": "0.7.5",
+    "Version": "0.7.6",
     "Website": ""
   },
   "X-Plasma-API": "declarativeappletscript",

@@ -38,6 +38,12 @@ export function isWarm(): boolean {
   return warm;
 }
 
+export function resetWarmup(): void {
+  warmupPromise = undefined;
+  greetingText = undefined;
+  warm = false;
+}
+
 export function startWarmup(agent: AmeliaAgent): Promise<string> {
   if (!warmupPromise) {
     warmupPromise = runWarmup(agent);

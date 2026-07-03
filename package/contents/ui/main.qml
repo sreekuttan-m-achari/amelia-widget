@@ -627,6 +627,7 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: uiPad
+        anchors.bottomMargin: uiPad + 3
         spacing: uiGap
 
         RowLayout {
@@ -669,12 +670,12 @@ Item {
                 visible: root.serverReady && root.agentWarm
                 text: root.immersiveActive ? i18n("Restore") : i18n("Focus")
                 flat: true
-                implicitHeight: Kirigami.Units.gridUnit * 2.2
+                implicitHeight: Kirigami.Units.gridUnit * 1.85
                 implicitWidth: Math.max(
-                    Kirigami.Units.gridUnit * 4.8,
-                    focusModeLabel.implicitWidth + uiPad * 2
+                    Kirigami.Units.gridUnit * 3.6,
+                    focusModeLabel.implicitWidth + uiPad
                 )
-                font.pointSize: uiSmallPt
+                font.pointSize: uiCaptionPt
                 onClicked: root.toggleImmersive()
 
                 contentItem: Text {
@@ -687,7 +688,7 @@ Item {
                 }
 
                 background: Rectangle {
-                    radius: 8
+                    radius: 6
                     color: focusModeButton.down
                         ? Qt.rgba(0.43, 0.78, 1.0, 0.22)
                         : (focusModeButton.hovered ? Qt.rgba(0.43, 0.78, 1.0, 0.14) : Qt.rgba(0.43, 0.78, 1.0, 0.08))

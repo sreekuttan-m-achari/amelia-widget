@@ -1,0 +1,28 @@
+[package]
+name = "cosmic-applet-amelia"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+description = "Amelia chat applet for the COSMIC desktop"
+repository = "https://github.com/amelia/amelia-widget"
+
+[dependencies]
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "process"] }
+tokio-tungstenite = "0.26"
+url = "2"
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic.git"
+features = [
+    "applet",
+    "applet-token",
+    "dbus-config",
+    "multi-window",
+    "tokio",
+    "wayland",
+    "winit",
+]

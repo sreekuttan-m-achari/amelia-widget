@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Amelia
+Comment=Chat with Amelia (Cursor agent)
+Type=Application
+Exec=cosmic-applet-amelia
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Amelia;Chat;Assistant;AI;
+Icon=com.amelia.CosmicApplet-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=5
