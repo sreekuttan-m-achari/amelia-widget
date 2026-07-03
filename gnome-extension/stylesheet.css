@@ -1,0 +1,126 @@
+.amelia-menu-box {
+    padding: 0;
+}
+
+.amelia-popup-item {
+    padding: 0;
+}
+
+.amelia-shell {
+    padding: 12px;
+    spacing: 10px;
+}
+
+.amelia-header {
+    spacing: 8px;
+}
+
+.amelia-title {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+.amelia-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-right: 4px;
+}
+
+.amelia-status-dot.online {
+    background-color: #f5a623;
+}
+
+.amelia-status-dot.offline {
+    background-color: #e01b24;
+}
+
+.amelia-status-dot.muted {
+    background-color: #888888;
+}
+
+.amelia-status-label {
+    font-size: 0.85em;
+    color: #cccccc;
+}
+
+.amelia-scroll {
+    margin: 4px 0;
+}
+
+.amelia-messages {
+    spacing: 10px;
+}
+
+.amelia-bubble-row {
+    spacing: 0;
+}
+
+.amelia-bubble {
+    padding: 8px 10px;
+    border-radius: 8px;
+    spacing: 6px;
+    max-width: 380px;
+}
+
+.amelia-bubble-user {
+    background-color: rgba(245, 166, 35, 0.25);
+    border: 1px solid rgba(245, 166, 35, 0.35);
+}
+
+.amelia-bubble-assistant {
+    background-color: rgba(120, 120, 120, 0.2);
+    border: 1px solid rgba(120, 120, 120, 0.3);
+}
+
+.amelia-bubble-system {
+    background-color: rgba(80, 80, 80, 0.2);
+    border: 1px solid rgba(80, 80, 80, 0.25);
+    max-width: 420px;
+}
+
+.amelia-bubble-heading {
+    font-size: 0.75em;
+    font-weight: bold;
+    color: #aaaaaa;
+}
+
+.amelia-bubble-body {
+    font-size: 0.95em;
+}
+
+.amelia-thinking {
+    color: #f5a623;
+}
+
+.amelia-actions {
+    spacing: 8px;
+}
+
+.amelia-text-button {
+    padding: 4px 8px;
+}
+
+.amelia-input-row {
+    spacing: 8px;
+}
+
+.amelia-entry {
+    min-height: 28px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.amelia-send-button {
+    padding: 6px 14px;
+    border-radius: 6px;
+    background-color: #3584e4;
+    color: white;
+    font-weight: bold;
+}
+
+.amelia-send-button:hover {
+    background-color: #62a0ea;
+}

@@ -1,39 +1,50 @@
 # Amelia widget
 
-KDE Plasma desktop widget + local API server (HTTP + WebSocket streaming).
+Local desktop assistant for Linux: a **Node.js backend** (Cursor SDK agent + MCP tools) and **desktop chat frontends** for KDE Plasma, COSMIC, and GNOME.
+
+All UIs talk to the same API on `http://127.0.0.1:8787` — install the server once, then pick the frontend for your desktop.
+
+## Choose your desktop UI
+
+| Desktop | Frontend | Install |
+|---------|----------|---------|
+| **KDE Plasma** (Kubuntu, KDE Neon, etc.) | QML plasmoid (`package/`) | `./install.sh` |
+| **COSMIC** (Pop!_OS 24.04+, COSMIC on Ubuntu) | Rust panel applet (`cosmic-applet/`) | `cd cosmic-applet && ./install.sh` |
+| **GNOME** (Ubuntu 24.04+, Fedora 39+) | Shell extension (`gnome-extension/`) | `cd gnome-extension && ./install.sh` |
+
+**GNOME Shell 45+** is required for the extension. Ubuntu 22.04 (GNOME 42–43) is not supported without a legacy port.
 
 ## Layout
 
 ```text
 amelia-widget/
-  package/          # KDE plasmoid (QML)
-  server/           # Node API + Cursor SDK agent
-  install.sh        # Install plasmoid
+  server/           # Node API + Cursor SDK agent (required for all UIs)
+  package/          # KDE Plasma plasmoid (QML)
+  cosmic-applet/    # COSMIC panel applet (Rust + libcosmic)
+  gnome-extension/  # GNOME Shell extension (GJS)
+  install.sh        # Install KDE plasmoid only
 ```
 
-## 1. Server setup
+## Quick start
+
+### 1. Backend (all desktops)
 
 **Requires Node.js 22.13+** (`@cursor/sdk`). Use [nvm](https://github.com/nvm-sh/nvm).
 
 ```bash
 cd server
 nvm use
-cp .env-sample .env          # set CURSOR_API_KEY
+cp .env-sample .env          # set CURSOR_API_KEY (never commit .env)
 cp SOUL.sample.md SOUL.md    # optional persona
 cp USER.sample.md USER.md    # optional user profile
 npm install
-npm start
 ```
 
-### Run as a systemd user service (recommended)
+**Recommended — systemd user service:**
 
 ```bash
 cd server
-nvm use
 ./deploy/install-service.sh
-```
-
-```bash
 systemctl --user status amelia-widget
 journalctl --user -u amelia-widget -f
 ```
@@ -44,64 +55,205 @@ Keep running after logout (optional):
 loginctl enable-linger "$USER"
 ```
 
-Stop the manual `npm start` terminal if the service is running (same port).
+Manual dev server (stop if the systemd service is already using port 8787):
 
-### API
+```bash
+npm start
+```
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Liveness + persona flags |
-| `POST /chat` | `{"message":"...","id":"..."}` → `{"reply":"..."}` or `{"cancelled":true,"reply":"..."}` |
-| `POST /chat/cancel` | `{"id":"..."}` — stop the in-flight turn for that id |
-| `POST /chat/stream` | SSE stream: `chunk`, `done`, or `cancelled` events |
-| `ws://127.0.0.1:8787` | WebSocket chat with streaming chunks |
+### 2. Frontend
 
-### Persona (`SOUL.md`)
+Pick one section below for your desktop environment.
 
-On startup the server loads `SOUL.md` (or `PROFILE.md`) and optional `USER.md`, then sends a warm-up turn so Amelia adopts that voice for the session. Override paths with `AGENT_SOUL_PATH` / `AGENT_USER_PATH` in `.env`.
+---
 
-### MCP tools (extensible)
+## Server API
 
-Add capabilities by editing **`server/.cursor/mcp.json`** (same format as Cursor IDE / `cursor-openapi`):
+Default base URL: `http://127.0.0.1:8787` (override with `AMELIA_WS_HOST` / `AMELIA_WS_PORT` in `.env`).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Liveness, warmup state, greeting, MCP status |
+| `/chat` | POST | `{"message":"...","id":"..."}` → `{"reply":"..."}` or `{"cancelled":true,"reply":"..."}` |
+| `/chat/cancel` | POST | `{"id":"..."}` — stop the in-flight turn for that id |
+| `/chat/stream` | POST | SSE stream with `chunk`, `done`, `cancelled`, or `error` events |
+| `/` | WebSocket | JSON messages: `chat`, `cancel`, `ping` → streaming `chunk` / `done` / etc. |
+
+### `GET /health` response
+
+```json
+{
+  "ok": true,
+  "version": "0.6.0",
+  "warm": true,
+  "greeting": "Hi — I'm Amelia…",
+  "persona": true,
+  "userProfile": true,
+  "mcp": { "loaded": true, "servers": ["memory", "home-assistant-rest", "mcp-server-fetch"] }
+}
+```
+
+Desktop clients poll `/health` every **5 seconds** and show status as:
+
+| Badge | Meaning |
+|-------|---------|
+| `checking…` | Initial bootstrap |
+| `offline` | `/health` unreachable |
+| `warming…` | API up, agent not warm yet |
+| `online` | `ok` + `warm` |
+| `thinking…` | Active chat turn in progress |
+
+### Persona (`SOUL.md` / `USER.md`)
+
+On startup the server loads `SOUL.md` (or `PROFILE.md`) and optional `USER.md`, then runs a warm-up turn so Amelia adopts that voice. Override paths with `AGENT_SOUL_PATH` / `AGENT_USER_PATH` in `.env`.
+
+### MCP tools
+
+Enable MCP in `.env`:
+
+```bash
+AMELIA_MCP_ENABLED=1
+```
+
+Configure servers in **`server/.cursor/mcp.json`** (same format as Cursor IDE / `cursor-openapi`):
 
 ```bash
 cd server
 cp .cursor/mcp.json.sample .cursor/mcp.json
-# edit .cursor/mcp.json — add servers under mcpServers
+# edit mcpServers — tokens go in .env, referenced as ${env:VAR_NAME}
 systemctl --user restart amelia-widget
 ```
 
-- **`${workspaceFolder}`** resolves to `AMELIA_AGENT_CWD` or `server/` cwd
-- **`${env:VAR_NAME}`** reads from `server/.env`
-- **`MCP_CONFIG_PATH`** — optional override (relative to agent cwd or absolute)
-- Reuse another project’s config, e.g. `MCP_CONFIG_PATH=/path/to/cursor-openapi/.cursor/mcp.json` with `AMELIA_AGENT_CWD` set to that repo if scripts use `${workspaceFolder}`
+Notes:
 
-`GET /health` includes `mcp.servers` when MCP loaded successfully.
+- **`${workspaceFolder}`** → `AMELIA_AGENT_CWD` or `server/` cwd
+- **`${env:VAR_NAME}`** → value from `server/.env`
+- **`MCP_CONFIG_PATH`** — optional path override
+- Bundled examples: `memory`, `home-assistant-rest`, `mcp-server-fetch`
+- `GET /health` → `mcp.servers` lists loaded server names
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CURSOR_API_KEY` | — | **Required.** Cursor API key |
+| `AMELIA_MCP_ENABLED` | `0` | Set to `1` to load MCP servers |
+| `MCP_CONFIG_PATH` | `.cursor/mcp.json` | MCP config file |
+| `AMELIA_AGENT_CWD` | `server/` cwd | Agent workspace root |
+| `AMELIA_WS_HOST` | `127.0.0.1` | HTTP/WS bind host |
+| `AMELIA_WS_PORT` | `8787` | HTTP/WS port |
+| `HA_BASE_URL` | — | Home Assistant URL (MCP) |
+| `HA_API_ACCESS_TOKEN` | — | HA long-lived token (MCP) |
+| `AMELIA_DEBUG` | `0` | Log conversations to stderr + `.amelia-conversations.ndjson` |
+
+See `server/.env-sample` for the full list.
 
 ### Debug mode
 
 ```bash
+# in server/.env
 AMELIA_DEBUG=1
 AMELIA_DEBUG_STREAM=1
 ```
 
-Logs to stderr and `server/.amelia-conversations.ndjson`.
+---
 
-## 2. Plasmoid
+## KDE Plasma plasmoid
 
 ```bash
 ./install.sh
 killall plasmashell && kstart5 plasmashell &
 ```
 
-Remove and re-add the widget. Look for **v0.4** (blue **●** when WebSocket streaming is active).
+Remove and re-add the **Amelia** widget from the desktop or panel.
 
-Uses WebSocket for streaming when available; falls back to HTTP `POST /chat`. While a reply is in progress, **Cancel** stops the agent; **Resume** resends the last message. Click the **fullscreen** icon (or press **Esc** to exit) for immersive focus mode.
+**Features:** WebSocket streaming (HTTP fallback), Cancel / Resume, immersive fullscreen mode (Esc to exit), status indicator. Current plasmoid version: **0.7.6**.
+
+---
+
+## COSMIC panel applet
+
+For **Pop!_OS 24.04+** and other distros running the COSMIC desktop session.
+
+### Build dependencies (Ubuntu/Debian)
+
+```bash
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev \
+  wayland-protocols libdbus-1-dev libasound2-dev libudev-dev libpipewire-0.3-dev libssl-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Install
+
+```bash
+cd cosmic-applet
+./install.sh
+```
+
+Add **Amelia** from **COSMIC panel settings → Add applet**.
+
+**Features:** Fixed-size chat popup (480×560), message bubbles, `/health` status polling, WebSocket streaming, systemd auto-start (`amelia-widget.service`), Cancel / Resume.
+
+Optional session env vars:
+
+| Variable | Default |
+|----------|---------|
+| `AMELIA_API_URL` | `http://127.0.0.1:8787` |
+| `AMELIA_SYSTEMD_SERVICE` | `amelia-widget.service` |
+
+After reinstalling, close the popup and click the panel icon again (COSMIC caches the running applet process).
+
+---
+
+## GNOME Shell extension
+
+For **Ubuntu GNOME 24.04+**, Fedora 39+, and other distros with **GNOME Shell 45+**.
+
+```bash
+# Ubuntu — optional helper app
+sudo apt install gnome-shell-extension-manager
+
+cd gnome-extension
+./install.sh
+```
+
+Enable **Amelia** in the Extensions app, then restart GNOME Shell:
+
+- **X11:** Alt+F2 → `r` → Enter
+- **Wayland:** log out and back in
+
+**Features:** Top-panel icon, chat popup, `/health` polling, WebSocket streaming (HTTP fallback), systemd auto-start, Cancel / Resume / Retry.
+
+Same optional env vars as the COSMIC applet (`AMELIA_API_URL`, `AMELIA_SYSTEMD_SERVICE`).
+
+---
+
+## Security
+
+**Never commit secrets.** The repo `.gitignore` excludes:
+
+- `server/.env` (API keys, HA tokens)
+- `server/.cursor/mcp.json` (local MCP wiring)
+- `server/SOUL.md`, `server/USER.md` (personal persona)
+- `server/.amelia-conversations.ndjson` (chat logs)
+
+Only `server/.env-sample` and `server/.cursor/mcp.json.sample` (placeholders) belong in git.
+
+---
 
 ## Uninstall
 
 ```bash
 systemctl --user disable --now amelia-widget
 rm -f ~/.config/systemd/user/amelia-widget.service
+
+# KDE
 rm -rf ~/.local/share/plasma/plasmoids/org.amelia.widget
+
+# COSMIC
+rm -f ~/.local/bin/cosmic-applet-amelia
+rm -f ~/.local/share/applications/com.amelia.CosmicApplet.desktop
+
+# GNOME
+rm -rf ~/.local/share/gnome-shell/extensions/amelia-widget@amelia.local
 ```

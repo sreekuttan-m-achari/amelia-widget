@@ -1,0 +1,9 @@
+{
+  "uuid": "amelia-widget@amelia.local",
+  "name": "Amelia",
+  "description": "Desktop assistant chat panel for the Amelia widget backend",
+  "version": 1,
+  "shell-version": ["45", "46", "47", "48"],
+  "url": "https://github.com/amelia-widget/amelia-widget",
+  "gettext-domain": "amelia-widget"
+}
