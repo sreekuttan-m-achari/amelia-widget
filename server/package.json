@@ -10,7 +10,7 @@
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.13",
+    "@cursor/sdk": "^1.0.22",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@modelcontextprotocol/server-memory": "^2026.1.26",
     "dotenv": "^16.4.5",
