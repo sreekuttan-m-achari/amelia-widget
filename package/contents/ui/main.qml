@@ -7,7 +7,6 @@ import org.kde.kirigami 2.19 as Kirigami
 import org.kde.plasma.core 2.0 as PlasmaCore
 import org.kde.plasma.plasmoid 2.0
 import org.kde.plasma.components 3.0 as PlasmaComponents
-import org.freedesktop.DBus 2.0
 
 Item {
     id: root
@@ -87,12 +86,10 @@ Item {
 
     signal chatScrollRequested()
 
-    DBusInterface {
-        id: notifyDBus
-        bus: DBus.SessionBus
-        service: "org.freedesktop.Notifications"
-        path: "/org/freedesktop/Notifications"
-        iface: "org.freedesktop.Notifications"
+    PlasmaCore.DataSource {
+        id: notificationSource
+        engine: "notifications"
+        connectedSources: "org.freedesktop.Notifications"
     }
 
     function truncateNotifyBody(text, maxChars) {
@@ -104,10 +101,17 @@ Item {
     }
 
     function desktopNotify(summary, body) {
-        notifyDBus.asyncCall(
-            "Notify",
-            ["Amelia", 0, "", summary, truncateNotifyBody(body, 240), [], {}, 8000]
-        );
+        var service = notificationSource.serviceForSource("notification");
+        if (!service) {
+            return;
+        }
+        var operation = service.operationDescription("createNotification");
+        operation.appName = "Amelia";
+        operation["appIcon"] = "user-available";
+        operation.summary = summary;
+        operation["body"] = truncateNotifyBody(body, 240);
+        operation["timeout"] = 8000;
+        service.startOperationCall(operation);
     }
 
     function statusNotifyKey() {
