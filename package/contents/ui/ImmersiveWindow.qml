@@ -101,7 +101,7 @@ Window {
                 text: widget ? widget.statusLabel : ""
                 color: widget ? widget.statusColor : "#9DD9F3"
                 font.pointSize: widget ? widget.uiCaptionPt : 10
-                font.capitalization: Font.AllSmallCaps
+                font.capitalization: Font.AllUppercase
                 padding: 8
                 background: Rectangle {
                     radius: height / 2

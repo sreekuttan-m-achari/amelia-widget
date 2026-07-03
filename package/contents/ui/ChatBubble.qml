@@ -109,7 +109,7 @@ Item {
                 text: bubbleRoot.speakerLabel
                 color: labelAccent
                 font.pointSize: labelPt
-                font.capitalization: Font.AllSmallCaps
+                font.capitalization: Font.AllUppercase
                 font.letterSpacing: 0.55
                 font.weight: Font.DemiBold
             }

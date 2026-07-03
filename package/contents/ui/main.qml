@@ -749,7 +749,7 @@ Item {
                     text: statusLabel
                     color: statusColor
                     font.pointSize: uiCaptionPt
-                    font.capitalization: Font.AllSmallCaps
+                    font.capitalization: Font.AllUppercase
                     font.letterSpacing: 0.4
                 }
             }
