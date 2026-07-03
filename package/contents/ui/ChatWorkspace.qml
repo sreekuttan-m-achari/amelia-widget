@@ -18,6 +18,8 @@ Item {
         : 8
     readonly property real fieldRadius: immersive ? 8 : 6
 
+    readonly property alias chatInputActive: inputField.activeFocus
+
     function scrollToEnd() {
         Qt.callLater(function() {
             var flick = chatScroll.contentItem;

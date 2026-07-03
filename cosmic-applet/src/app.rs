@@ -18,6 +18,7 @@ use crate::api::{
     ensure_server_ready, fetch_health, post_cancel, post_chat, run_ws_loop, ws_send_cancel,
     ws_send_chat, WsInbound,
 };
+use crate::notify;
 
 fn app_msg(message: Message) -> Action<Message> {
     Action::App(message)
@@ -82,6 +83,7 @@ pub struct AmeliaApplet {
     server_version: String,
     server_start_attempted: bool,
     typing_phase: u8,
+    last_status_notify: Option<String>,
     ws_cmd_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 }
 
@@ -270,6 +272,48 @@ impl AmeliaApplet {
         }
     }
 
+    fn status_notify_key(&self) -> &'static str {
+        if self.connection_failed || !self.server_ready {
+            "offline"
+        } else if !self.agent_warm {
+            "warming"
+        } else {
+            "online"
+        }
+    }
+
+    fn should_notify_user(&self) -> bool {
+        self.popup.is_none()
+    }
+
+    fn maybe_notify_reply(&self, reply: &str) {
+        if !self.should_notify_user() || reply.trim().is_empty() {
+            return;
+        }
+        notify::show("Amelia", notify::truncate_body(reply, 240));
+    }
+
+    fn sync_status_notifications(&mut self) {
+        if self.connecting {
+            return;
+        }
+        let key = self.status_notify_key();
+        let previous = self.last_status_notify.replace(key.to_string());
+        if previous.as_deref() == Some(key) {
+            return;
+        }
+        let previous = previous.as_deref();
+        match key {
+            "offline" if previous != Some("offline") => {
+                notify::show("Amelia offline", "Cannot reach the backend API.");
+            }
+            "online" if matches!(previous, Some("offline") | Some("warming")) => {
+                notify::show("Amelia online", "Backend is ready.");
+            }
+            _ => {}
+        }
+    }
+
     fn apply_health_ok(&mut self, health: &crate::api::Health) {
         self.connection_failed = false;
         self.server_ready = true;
@@ -278,12 +322,14 @@ impl AmeliaApplet {
             self.server_version = health.version.clone();
         }
         self.apply_health(health);
+        self.sync_status_notifications();
     }
 
     fn apply_health_offline(&mut self) {
         self.connection_failed = true;
         self.server_ready = false;
         self.agent_warm = false;
+        self.sync_status_notifications();
     }
 
     fn on_backend_connected(&mut self, health: crate::api::Health) {
@@ -298,6 +344,7 @@ impl AmeliaApplet {
         self.connection_failed = true;
         self.server_ready = false;
         self.clear_messages();
+        self.sync_status_notifications();
         self.add_message(
             Role::System,
             format!(
@@ -394,6 +441,7 @@ impl AmeliaApplet {
                     } else {
                         reply
                     };
+                    self.maybe_notify_reply(&final_reply);
                     self.finalize_pending_assistant(final_reply);
                     self.streaming_reply.clear();
                     self.pending_id.clear();
@@ -411,6 +459,7 @@ impl AmeliaApplet {
                 if id.as_deref() == Some(self.pending_id.as_str()) || id.is_none() {
                     self.busy = false;
                     self.can_resume = !self.last_query.is_empty();
+                    self.maybe_notify_reply(&error);
                     self.finalize_pending_assistant(error);
                     self.streaming_reply.clear();
                     self.pending_id.clear();
@@ -824,17 +873,20 @@ impl cosmic::Application for AmeliaApplet {
                             self.on_query_cancelled(&response.reply);
                         } else {
                             self.can_resume = false;
-                            self.finalize_pending_assistant(if response.reply.is_empty() {
+                            let reply = if response.reply.is_empty() {
                                 "(empty reply)".to_string()
                             } else {
                                 response.reply
-                            });
+                            };
+                            self.maybe_notify_reply(&reply);
+                            self.finalize_pending_assistant(reply);
                             self.pending_id.clear();
                             self.streaming_reply.clear();
                         }
                     }
                     Err(err) => {
                         self.can_resume = !self.last_query.is_empty();
+                        self.maybe_notify_reply(&err);
                         self.finalize_pending_assistant(err);
                         self.pending_id.clear();
                         self.streaming_reply.clear();

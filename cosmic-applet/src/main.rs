@@ -2,6 +2,7 @@
 
 mod api;
 mod app;
+mod notify;
 
 fn main() -> cosmic::iced::Result {
     cosmic::applet::run::<app::AmeliaApplet>(())

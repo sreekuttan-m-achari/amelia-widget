@@ -7,6 +7,7 @@ import org.kde.kirigami 2.19 as Kirigami
 import org.kde.plasma.core 2.0 as PlasmaCore
 import org.kde.plasma.plasmoid 2.0
 import org.kde.plasma.components 3.0 as PlasmaComponents
+import org.freedesktop.DBus 2.0
 
 Item {
     id: root
@@ -82,8 +83,87 @@ Item {
     property bool immersiveActive: false
     property string composeText: ""
     property var immersiveWindow: null
+    property string lastStatusNotifyKey: ""
 
     signal chatScrollRequested()
+
+    DBusInterface {
+        id: notifyDBus
+        bus: DBus.SessionBus
+        service: "org.freedesktop.Notifications"
+        path: "/org/freedesktop/Notifications"
+        iface: "org.freedesktop.Notifications"
+    }
+
+    function truncateNotifyBody(text, maxChars) {
+        var flat = String(text || "").replace(/\s+/g, " ").trim();
+        if (flat.length <= maxChars) {
+            return flat;
+        }
+        return flat.substring(0, maxChars) + "…";
+    }
+
+    function desktopNotify(summary, body) {
+        notifyDBus.asyncCall(
+            "Notify",
+            ["Amelia", 0, "", summary, truncateNotifyBody(body, 240), [], {}, 8000]
+        );
+    }
+
+    function statusNotifyKey() {
+        if (connectionFailed || !serverReady) {
+            return "offline";
+        }
+        if (!agentWarm) {
+            return "warming";
+        }
+        return "online";
+    }
+
+    function shouldNotifyUser() {
+        if (!Qt.application.active) {
+            return true;
+        }
+        if (immersiveWindow && immersiveWindow.active && immersiveWindow.visible) {
+            return false;
+        }
+        if (!Plasmoid.expanded) {
+            return true;
+        }
+        if (compactWorkspace.visible && compactWorkspace.chatInputActive) {
+            return false;
+        }
+        return true;
+    }
+
+    function maybeNotifyReply(text) {
+        if (!shouldNotifyUser()) {
+            return;
+        }
+        desktopNotify("Amelia", text);
+    }
+
+    function syncStatusNotifications() {
+        if (connecting) {
+            return;
+        }
+        var key = statusNotifyKey();
+        var previous = lastStatusNotifyKey;
+        lastStatusNotifyKey = key;
+        if (previous === key) {
+            return;
+        }
+        if (key === "offline" && previous !== "offline") {
+            desktopNotify("Amelia offline", "Cannot reach the backend API.");
+        } else if (key === "online" && (previous === "offline" || previous === "warming")) {
+            desktopNotify("Amelia online", "Backend is ready.");
+        }
+    }
+
+    function completeAssistantReply(text) {
+        finalizePendingAssistant(text);
+        maybeNotifyReply(text);
+    }
 
     readonly property string statusLabel: {
         if (connectionFailed) {
@@ -274,6 +354,7 @@ Item {
             clearMessages();
         }
         socket.active = true;
+        syncStatusNotifications();
     }
 
     function onBackendFailed() {
@@ -282,6 +363,7 @@ Item {
         selfCheckDone = true;
         serverReady = false;
         setSystemMessage(buildSelfCheckFailure());
+        syncStatusNotifications();
     }
 
     function checkHealth() {
@@ -399,7 +481,7 @@ Item {
                         onQueryCancelled(body.reply || "");
                         return;
                     }
-                    finalizePendingAssistant(body.reply || qsTr("(empty reply)"));
+                    completeAssistantReply(body.reply || qsTr("(empty reply)"));
                     pendingId = "";
                     streamingReply = "";
                     return;
@@ -407,7 +489,7 @@ Item {
                 }
             }
             var err = qsTr("Request failed (HTTP %1)").arg(xhr.status);
-            finalizePendingAssistant(err);
+            completeAssistantReply(err);
             pendingId = "";
             streamingReply = "";
         };
@@ -529,7 +611,7 @@ Item {
             busy = false;
             canResume = false;
             var finalReply = body.reply || streamingReply || qsTr("(empty reply)");
-            finalizePendingAssistant(finalReply);
+            completeAssistantReply(finalReply);
             streamingReply = "";
             pendingId = "";
             return;
@@ -544,6 +626,7 @@ Item {
             busy = false;
             canResume = lastQueryText.length > 0;
             finalizePendingAssistant(body.error || qsTr("Unknown error"));
+            maybeNotifyReply(body.error || qsTr("Unknown error"));
             streamingReply = "";
             pendingId = "";
         }

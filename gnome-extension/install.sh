@@ -7,7 +7,7 @@ EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
 echo "Installing Amelia GNOME Shell extension…"
 mkdir -p "$EXT_DIR"
-cp "$ROOT/extension.js" "$ROOT/amelia-indicator.js" "$ROOT/api.js" "$ROOT/stylesheet.css" "$ROOT/metadata.json" "$EXT_DIR/"
+cp "$ROOT/extension.js" "$ROOT/amelia-indicator.js" "$ROOT/api.js" "$ROOT/notify.js" "$ROOT/stylesheet.css" "$ROOT/metadata.json" "$EXT_DIR/"
 
 if command -v gnome-extensions >/dev/null 2>&1; then
   gnome-extensions enable "$UUID" 2>/dev/null || true

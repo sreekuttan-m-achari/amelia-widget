@@ -22,7 +22,7 @@ Amelia is early and personal, but the shape is deliberate: **leverage what you a
 
 - More desktop platforms and shell integrations
 - Richer tool / MCP workflows
-- Deeper OS hooks (notifications, quick actions, voice — TBD)
+- Deeper OS hooks (quick actions, voice — TBD)
 
 **Want in?** Fork it, clone it, make it yours. Explore the code, open issues, send PRs — contributions welcome.
 
@@ -49,7 +49,96 @@ amelia-widget/
   install.sh        # Install KDE plasmoid only
 ```
 
+## Dependencies
+
+Everything below is **Linux**. You need the **backend** plus **one** desktop frontend for your session.
+
+### Accounts & secrets
+
+| Requirement | Notes |
+|-------------|--------|
+| **Cursor subscription** | Amelia uses the [Cursor SDK](https://www.npmjs.com/package/@cursor/sdk) (`@cursor/sdk`) — an active Cursor account and API key |
+| **`CURSOR_API_KEY`** | Set in `server/.env` (see `server/.env-sample`). Never commit this file |
+
+### Backend (`server/`) — required for all UIs
+
+| Requirement | Version / notes |
+|-------------|-----------------|
+| **Node.js** | **22.13+** (see `server/.nvmrc` — currently Node 22). [nvm](https://github.com/nvm-sh/nvm) is recommended |
+| **npm** | Comes with Node; run `npm install` in `server/` |
+| **systemd** | User session (`systemctl --user`) for the recommended service install |
+| **Network** | Outbound HTTPS to Cursor APIs; local bind on `127.0.0.1:8787` by default |
+
+**Optional — MCP tools** (set `AMELIA_MCP_ENABLED=1` in `.env`):
+
+| Tool | Used by | Install |
+|------|---------|---------|
+| **Node** | `memory`, `home-assistant-rest` MCP servers | Bundled via `npm install` in `server/` |
+| **[uv](https://github.com/astral-sh/uv)** (`uvx`) | `mcp-server-fetch` in the sample config | `curl -LsSf https://astral.sh/uv/install.sh \| sh` or your distro package |
+| **Home Assistant** | `home-assistant-rest` | Running HA instance + long-lived token in `.env` |
+
+**Optional — persona files:** copy `SOUL.sample.md` → `SOUL.md`, `USER.sample.md` → `USER.md`.
+
+### Runtime (all frontends)
+
+| Requirement | Notes |
+|-------------|--------|
+| **Notification daemon** | freedesktop `org.freedesktop.Notifications` (COSMIC, KDE Plasma, and GNOME all provide one) |
+| **Local backend** | `amelia-widget.service` or `npm start` in `server/` |
+
+### KDE Plasma plasmoid (`package/`)
+
+| Requirement | Notes |
+|-------------|--------|
+| **KDE Plasma** | 5.x or 6.x with QML plasmoid support |
+| **Qt WebSockets** | `QtWebSockets` QML module (included with Plasma) |
+| **Plasma shell** | Restart after install: `killall plasmashell && kstart5 plasmashell &` |
+
+No extra build step — `./install.sh` copies the plasmoid into `~/.local/share/plasma/plasmoids/`.
+
+### COSMIC panel applet (`cosmic-applet/`)
+
+| Requirement | Notes |
+|-------------|--------|
+| **COSMIC desktop** | Pop!_OS 24.04+, or COSMIC session on another distro |
+| **Rust toolchain** | [rustup](https://rustup.rs): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| **Build packages (Debian/Ubuntu)** | See below |
+| **D-Bus** | For desktop notifications at runtime |
+
+```bash
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev \
+  wayland-protocols libdbus-1-dev libasound2-dev libudev-dev libpipewire-0.3-dev libssl-dev
+```
+
+Fedora/RHEL equivalents: `gcc`, `pkg-config`, `libxkbcommon-devel`, `wayland-devel`, `wayland-protocols-devel`, `dbus-devel`, `alsa-lib-devel`, `systemd-devel`, `pipewire-devel`, `openssl-devel`.
+
+First install compiles from source (~1–3 min); `cosmic-applet/install.sh` installs the binary to `~/.local/bin/`.
+
+### GNOME Shell extension (`gnome-extension/`)
+
+| Requirement | Notes |
+|-------------|--------|
+| **GNOME Shell** | **45+** (Ubuntu 24.04+, Fedora 39+, etc.) |
+| **User extensions** | Enabled in your distro (Ubuntu: Extensions app / `gnome-shell-extension-manager`) |
+| **libsoup 3** | Used via GIO for HTTP/WebSocket (provided by GNOME runtime) |
+
+No compiler needed — `gnome-extension/install.sh` copies JavaScript into `~/.local/share/gnome-shell/extensions/`. Restart GNOME Shell after enabling.
+
+### Quick dependency matrix
+
+| Component | KDE | COSMIC | GNOME |
+|-----------|-----|--------|-------|
+| Backend (`server/`) | ✅ | ✅ | ✅ |
+| Node 22.13+ | ✅ | ✅ | ✅ |
+| Cursor API key | ✅ | ✅ | ✅ |
+| Plasma | ✅ | — | — |
+| COSMIC session | — | ✅ | — |
+| GNOME Shell 45+ | — | — | ✅ |
+| Rust + build deps | — | ✅ (build only) | — |
+
 ## Quick start
+
+**Prerequisites:** see [Dependencies](#dependencies) (Node 22.13+, Cursor API key, plus your desktop frontend’s requirements).
 
 ### 1. Backend (all desktops)
 
@@ -189,23 +278,15 @@ AMELIA_DEBUG_STREAM=1
 killall plasmashell && kstart5 plasmashell &
 ```
 
-Remove and re-add the **Amelia** widget from the desktop or panel.
+Remove and re-add the **Amelia** widget from the desktop or panel. See [Dependencies](#kde-plasma-plasmoid-package) for Plasma requirements.
 
-**Features:** WebSocket streaming (HTTP fallback), Cancel / Resume, immersive fullscreen mode (Esc to exit), status indicator. Current plasmoid version: **0.7.6**.
+**Features:** WebSocket streaming (HTTP fallback), Cancel / Resume, immersive fullscreen mode (Esc to exit), status indicator, desktop notifications when unfocused. Current plasmoid version: **0.7.6**.
 
 ---
 
 ## COSMIC panel applet
 
-For **Pop!_OS 24.04+** and other distros running the COSMIC desktop session.
-
-### Build dependencies (Ubuntu/Debian)
-
-```bash
-sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev \
-  wayland-protocols libdbus-1-dev libasound2-dev libudev-dev libpipewire-0.3-dev libssl-dev
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+For **Pop!_OS 24.04+** and other distros running the COSMIC desktop session. See [Dependencies](#cosmic-panel-applet-cosmic-applet) for Rust and build packages.
 
 ### Install
 
@@ -216,7 +297,7 @@ cd cosmic-applet
 
 Add **Amelia** from **COSMIC panel settings → Add applet**.
 
-**Features:** Fixed-size chat popup (480×560), message bubbles, `/health` status polling, WebSocket streaming, systemd auto-start (`amelia-widget.service`), Cancel / Resume.
+**Features:** Fixed-size chat popup (480×560), message bubbles, `/health` status polling, WebSocket streaming, systemd auto-start (`amelia-widget.service`), Cancel / Resume, desktop notifications when the popup is closed.
 
 Optional session env vars:
 
@@ -231,7 +312,7 @@ After reinstalling, close the popup and click the panel icon again (COSMIC cache
 
 ## GNOME Shell extension
 
-For **Ubuntu GNOME 24.04+**, Fedora 39+, and other distros with **GNOME Shell 45+**.
+For **Ubuntu GNOME 24.04+**, Fedora 39+, and other distros with **GNOME Shell 45+**. See [Dependencies](#gnome-shell-extension-gnome-extension).
 
 ```bash
 # Ubuntu — optional helper app
@@ -246,9 +327,25 @@ Enable **Amelia** in the Extensions app, then restart GNOME Shell:
 - **X11:** Alt+F2 → `r` → Enter
 - **Wayland:** log out and back in
 
-**Features:** Top-panel icon, chat popup, `/health` polling, WebSocket streaming (HTTP fallback), systemd auto-start, Cancel / Resume / Retry.
+**Features:** Top-panel icon, chat popup, `/health` polling, WebSocket streaming (HTTP fallback), systemd auto-start, Cancel / Resume / Retry, desktop notifications when the menu is closed.
 
 Same optional env vars as the COSMIC applet (`AMELIA_API_URL`, `AMELIA_SYSTEMD_SERVICE`).
+
+### Desktop notifications
+
+All frontends use **freedesktop notifications** (requires a running notification daemon, e.g. `cosmic-notifications`, KDE Plasma, or GNOME's service).
+
+| Event | When notified |
+|-------|----------------|
+| **Chat reply** | Assistant finishes a turn while you are not focused on Amelia |
+| **Backend offline** | `/health` starts failing |
+| **Backend online** | Recovers from offline or warming |
+
+Focus heuristics per UI:
+
+- **COSMIC:** popup is closed
+- **GNOME:** panel menu is closed
+- **KDE:** another app is active, plasmoid is collapsed, or chat input is not focused
 
 ---
 

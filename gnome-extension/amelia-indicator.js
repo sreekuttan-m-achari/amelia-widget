@@ -15,6 +15,7 @@ import {
     startServerViaSystemd,
     wsSend,
 } from './api.js';
+import { notifyReply, notifyStatus } from './notify.js';
 
 const HEALTH_POLL_SECS = 5;
 const POPUP_WIDTH = 480;
@@ -42,6 +43,7 @@ class AmeliaIndicator extends PanelMenu.Button {
         this._canResume = false;
         this._serverStartAttempted = false;
         this._typingPhase = 0;
+        this._lastStatusNotify = null;
 
         const icon = new St.Icon({
             icon_name: 'user-available-symbolic',
@@ -192,10 +194,62 @@ class AmeliaIndicator extends PanelMenu.Button {
         this._pollHealth(true);
     }
 
+    _statusNotifyKey() {
+        if (this._connectionFailed || !this._serverReady)
+            return 'offline';
+        if (!this._agentWarm)
+            return 'warming';
+        return 'online';
+    }
+
+    _shouldNotifyUser() {
+        return !this.menu.isOpen;
+    }
+
+    _maybeNotifyReply(text) {
+        if (!this._shouldNotifyUser() || !text || !text.trim())
+            return;
+        notifyReply(text);
+    }
+
+    _syncStatusNotifications() {
+        if (this._connecting)
+            return;
+        const key = this._statusNotifyKey();
+        const previous = this._lastStatusNotify;
+        this._lastStatusNotify = key;
+        if (previous === key)
+            return;
+        if (key === 'offline' && previous !== 'offline')
+            notifyStatus('Amelia offline', 'Cannot reach the backend API.');
+        else if (key === 'online' && (previous === 'offline' || previous === 'warming'))
+            notifyStatus('Amelia online', 'Backend is ready.');
+    }
+
+    _applyHealthOk(health) {
+        this._connectionFailed = false;
+        this._serverReady = true;
+        this._connecting = false;
+        if (health.warm)
+            this._agentWarm = true;
+        if (health.greeting)
+            this._setGreeting(health.greeting);
+        else if (health.warm)
+            this._agentWarm = true;
+        this._syncStatusNotifications();
+    }
+
+    _applyHealthOffline() {
+        this._connectionFailed = true;
+        this._serverReady = false;
+        this._agentWarm = false;
+        this._syncStatusNotifications();
+    }
+
     _pollHealth(isBootstrap = false) {
         fetchHealth((err, health) => {
             if (!err && health?.ok) {
-                this._applyHealthOk(health, isBootstrap);
+                this._applyHealthOk(health);
             } else if (isBootstrap) {
                 this._onBackendFailed();
             } else {
@@ -206,32 +260,12 @@ class AmeliaIndicator extends PanelMenu.Button {
         });
     }
 
-    _applyHealthOk(health, isBootstrap) {
-        this._connectionFailed = false;
-        this._serverReady = true;
-        this._connecting = false;
-        if (health.warm)
-            this._agentWarm = true;
-        if (health.greeting)
-            this._setGreeting(health.greeting);
-        else if (health.warm)
-            this._agentWarm = true;
-
-        if (isBootstrap && !this._agentWarm && !this._busy && !this._hasUserChatted)
-            this._clearMessages();
-    }
-
-    _applyHealthOffline() {
-        this._connectionFailed = true;
-        this._serverReady = false;
-        this._agentWarm = false;
-    }
-
     _onBackendFailed() {
         this._connecting = false;
         this._connectionFailed = true;
         this._serverReady = false;
         this._clearMessages();
+        this._syncStatusNotifications();
         this._addMessage('system', `Self-check: backend is down.\n\n✗ No response from ${apiBase()}\n\nThe extension tried to start it automatically:\n  systemctl --user start amelia-widget\n\nCheck logs:\n  journalctl --user -u amelia-widget -f\n\nTap Retry to try again.`, false);
         this._renderMessages();
     }
@@ -276,6 +310,7 @@ class AmeliaIndicator extends PanelMenu.Button {
                 this._busy = false;
                 this._canResume = false;
                 const reply = msg.reply || this._streamingReply || '(empty reply)';
+                this._maybeNotifyReply(reply);
                 this._finalizePendingAssistant(reply);
                 this._pendingId = '';
                 this._streamingReply = '';
@@ -291,7 +326,9 @@ class AmeliaIndicator extends PanelMenu.Button {
             if (!msg.id || msg.id === this._pendingId) {
                 this._busy = false;
                 this._canResume = this._lastQuery.length > 0;
-                this._finalizePendingAssistant(msg.error || 'Error');
+                const error = msg.error || 'Error';
+                this._maybeNotifyReply(error);
+                this._finalizePendingAssistant(error);
                 this._pendingId = '';
                 this._streamingReply = '';
                 this._updateActions();
@@ -511,12 +548,15 @@ class AmeliaIndicator extends PanelMenu.Button {
             this._busy = false;
             if (err) {
                 this._canResume = this._lastQuery.length > 0;
+                this._maybeNotifyReply(err.message);
                 this._finalizePendingAssistant(err.message);
             } else if (response?.cancelled) {
                 this._onQueryCancelled(response.reply || '');
             } else {
                 this._canResume = false;
-                this._finalizePendingAssistant(response?.reply || '(empty reply)');
+                const reply = response?.reply || '(empty reply)';
+                this._maybeNotifyReply(reply);
+                this._finalizePendingAssistant(reply);
             }
             this._pendingId = '';
             this._streamingReply = '';
