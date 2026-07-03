@@ -1,0 +1,19 @@
+# Secrets and local config
+.env
+.env.*
+!.env-sample
+!.env.*-sample
+
+# Agent persona (user-specific)
+server/SOUL.md
+server/USER.md
+
+# MCP config with local env wiring (use .cursor/mcp.json.sample)
+server/.cursor/mcp.json
+
+# Debug conversation logs (may contain personal chat history)
+server/.amelia-conversations.ndjson
+*.ndjson
+
+# Rust build output
+cosmic-applet/target/
