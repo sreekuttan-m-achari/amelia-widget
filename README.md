@@ -280,7 +280,7 @@ killall plasmashell && kstart5 plasmashell &
 
 Remove and re-add the **Amelia** widget from the desktop or panel. See [Dependencies](#kde-plasma-plasmoid-package) for Plasma requirements.
 
-**Features:** WebSocket streaming (HTTP fallback), Cancel / Resume, immersive fullscreen mode (Esc to exit), status indicator, desktop notifications when unfocused. Current plasmoid version: **0.7.6**.
+**Features:** Pop-out orb mode (collapses to a small pulsating status orb on the desktop and pops the chat out on click — toggle in widget settings), WebSocket streaming (HTTP fallback), Cancel / Resume, immersive fullscreen mode (Esc to exit), status indicator, desktop notifications when unfocused. Current plasmoid version: **0.8.1**.
 
 ---
 

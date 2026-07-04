@@ -10,5 +10,9 @@
       <label>Amelia API URL</label>
       <default>http://127.0.0.1:8787</default>
     </entry>
+    <entry name="popOutMode" type="Bool">
+      <label>Collapse to a pulsating orb when idle and pop the chat out on click</label>
+      <default>true</default>
+    </entry>
   </group>
 </kcfg>

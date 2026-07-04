@@ -11,15 +11,31 @@ import org.kde.plasma.components 3.0 as PlasmaComponents
 Item {
     id: root
 
-    implicitWidth: Kirigami.Units.gridUnit * 19
-    implicitHeight: Kirigami.Units.gridUnit * 15
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 14
-    Layout.minimumHeight: Kirigami.Units.gridUnit * 10
+    // Orb mode keeps a tiny desktop footprint; pinned mode uses the old size.
+    implicitWidth: plasmoid.configuration.popOutMode
+        ? Kirigami.Units.gridUnit * 3.4
+        : Kirigami.Units.gridUnit * 19
+    implicitHeight: plasmoid.configuration.popOutMode
+        ? Kirigami.Units.gridUnit * 3.9
+        : Kirigami.Units.gridUnit * 15
+    Layout.minimumWidth: plasmoid.configuration.popOutMode
+        ? Kirigami.Units.gridUnit * 2.8
+        : Kirigami.Units.gridUnit * 14
+    Layout.minimumHeight: plasmoid.configuration.popOutMode
+        ? Kirigami.Units.gridUnit * 3.2
+        : Kirigami.Units.gridUnit * 10
     Layout.preferredWidth: implicitWidth
     Layout.preferredHeight: implicitHeight
 
-    Plasmoid.preferredRepresentation: Plasmoid.fullRepresentation
+    // Pop-out mode (default): show a small pulsating orb on the desktop and
+    // open the chat in a popup on click. Turn it off in settings to keep the
+    // full chat panel pinned to the desktop like before.
+    Plasmoid.preferredRepresentation: plasmoid.configuration.popOutMode
+        ? Plasmoid.compactRepresentation
+        : Plasmoid.fullRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
+    Plasmoid.toolTipMainText: i18n("Amelia")
+    Plasmoid.toolTipSubText: root.statusLabel
 
     AriaTokens { id: ariaTheme }
 
@@ -85,6 +101,10 @@ Item {
     property string composeText: ""
     property var immersiveWindow: null
     property string lastStatusNotifyKey: ""
+    // Set when a reply lands while the popup is collapsed — drives the orb badge.
+    property bool unreadReply: false
+    // The ChatWorkspace living in the full representation (null while collapsed).
+    property Item liveWorkspace: null
 
     signal chatScrollRequested()
 
@@ -136,7 +156,7 @@ Item {
         if (!Plasmoid.expanded) {
             return true;
         }
-        if (compactWorkspace.visible && compactWorkspace.chatInputActive) {
+        if (liveWorkspace && liveWorkspace.visible && liveWorkspace.chatInputActive) {
             return false;
         }
         return true;
@@ -166,8 +186,15 @@ Item {
         }
     }
 
+    function markReplyArrived() {
+        if (!Plasmoid.expanded) {
+            unreadReply = true;
+        }
+    }
+
     function completeAssistantReply(text) {
         finalizePendingAssistant(text);
+        markReplyArrived();
         maybeNotifyReply(text);
     }
 
@@ -562,8 +589,8 @@ Item {
         }
         Qt.callLater(function() {
             scrollChatToEnd();
-            if (compactWorkspace) {
-                compactWorkspace.focusInput();
+            if (liveWorkspace) {
+                liveWorkspace.focusInput();
             }
         });
     }
@@ -632,6 +659,7 @@ Item {
             busy = false;
             canResume = lastQueryText.length > 0;
             finalizePendingAssistant(body.error || qsTr("Unknown error"));
+            markReplyArrived();
             maybeNotifyReply(body.error || qsTr("Unknown error"));
             streamingReply = "";
             pendingId = "";
@@ -689,6 +717,295 @@ Item {
         connectFailTimer.start();
         checkHealth();
     }
+
+    // Collapse back to the orb / clean up unread state when the popup toggles.
+    Connections {
+        target: plasmoid
+        function onExpandedChanged() {
+            if (plasmoid.expanded) {
+                root.unreadReply = false;
+                root.scrollChatToEnd();
+                if (root.liveWorkspace) {
+                    root.liveWorkspace.focusInput();
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Collapsed state: a small pulsating orb that lives on the desktop.
+    // Click it to pop the chat out; it reflects live status via colour.
+    // ─────────────────────────────────────────────────────────────
+    Plasmoid.compactRepresentation: MouseArea {
+        id: orb
+
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 2.8
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 3.2
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 3.4
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 3.9
+
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton
+        onClicked: plasmoid.expanded = !plasmoid.expanded
+
+        readonly property bool thinking: root.busy
+        readonly property bool degraded: root.connectionFailed
+        readonly property bool waking: !root.connectionFailed && (!root.serverReady || !root.agentWarm)
+        readonly property bool attention: root.unreadReply && !thinking
+        readonly property color coreColor: {
+            if (degraded) {
+                return root.aiError;
+            }
+            if (waking) {
+                return ariaTheme.statusWarming;
+            }
+            if (thinking) {
+                return ariaTheme.statusThinking;
+            }
+            if (attention) {
+                return ariaTheme.statusOnline;
+            }
+            return root.aiGlow;
+        }
+        // Idle breathes slowly; activity / attention pulses faster.
+        readonly property int pulseMs: thinking ? 640 : (waking ? 900 : (attention ? 760 : 2400))
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.topMargin: 2
+            spacing: Kirigami.Units.smallSpacing
+
+            Item {
+                id: orbVisual
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                // Cap the orb so it stays small even if the widget is stretched.
+                readonly property real d: Math.min(width, height, Kirigami.Units.gridUnit * 2.7)
+
+                // Expanding ripple ring — the outward "pulse".
+                Rectangle {
+                    id: ripple
+                    anchors.centerIn: parent
+                    width: orbVisual.d * 0.62
+                    height: width
+                    radius: width / 2
+                    color: "transparent"
+                    border.width: 2
+                    border.color: orb.coreColor
+                    opacity: 0
+
+                    SequentialAnimation {
+                        running: true
+                        loops: Animation.Infinite
+
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: ripple
+                                property: "scale"
+                                from: 0.7
+                                to: 1.55
+                                duration: orb.pulseMs
+                                easing.type: Easing.OutCubic
+                            }
+                            SequentialAnimation {
+                                NumberAnimation {
+                                    target: ripple
+                                    property: "opacity"
+                                    from: 0.0
+                                    to: 0.5
+                                    duration: orb.pulseMs * 0.35
+                                    easing.type: Easing.OutCubic
+                                }
+                                NumberAnimation {
+                                    target: ripple
+                                    property: "opacity"
+                                    to: 0.0
+                                    duration: orb.pulseMs * 0.65
+                                    easing.type: Easing.InCubic
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Soft halo that gently breathes.
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: orbVisual.d * 0.82
+                    height: width
+                    radius: width / 2
+                    color: Qt.rgba(orb.coreColor.r, orb.coreColor.g, orb.coreColor.b, 0.16)
+                    border.width: 1
+                    border.color: Qt.rgba(orb.coreColor.r, orb.coreColor.g, orb.coreColor.b, 0.28)
+
+                    SequentialAnimation on scale {
+                        running: true
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 1.08; duration: orb.pulseMs; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: orb.pulseMs; easing.type: Easing.InOutSine }
+                    }
+                }
+
+                // Core orb with the Amelia monogram.
+                Rectangle {
+                    id: orbCore
+                    anchors.centerIn: parent
+                    width: orbVisual.d * 0.58
+                    height: width
+                    radius: width / 2
+                    scale: orb.pressed ? 0.9 : (orb.containsMouse ? 1.07 : 1.0)
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.35)
+
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Qt.lighter(orb.coreColor, 1.4) }
+                        GradientStop { position: 1.0; color: Qt.darker(orb.coreColor, 1.25) }
+                    }
+
+                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                    // Glass sheen.
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: parent.height * 0.14
+                        width: parent.width * 0.5
+                        height: parent.height * 0.3
+                        radius: height / 2
+                        opacity: 0.45
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.7) }
+                            GradientStop { position: 1.0; color: "transparent" }
+                        }
+                    }
+
+                    // "A" monogram.
+                    Text {
+                        anchors.centerIn: parent
+                        text: "A"
+                        color: Qt.rgba(0.02, 0.05, 0.1, 0.82)
+                        font.pointSize: Math.max(7, orbCore.width * 0.4)
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.5
+                    }
+                }
+
+                // Unread badge — a reply landed while collapsed.
+                Rectangle {
+                    id: unreadBadge
+                    visible: root.unreadReply
+                    width: Math.max(8, orbVisual.d * 0.2)
+                    height: width
+                    radius: width / 2
+                    color: ariaTheme.agentCore
+                    border.width: 1.5
+                    border.color: Qt.rgba(1, 1, 1, 0.85)
+                    anchors.right: orbCore.right
+                    anchors.top: orbCore.top
+                    anchors.rightMargin: -width * 0.1
+                    anchors.topMargin: -height * 0.1
+
+                    SequentialAnimation on scale {
+                        running: root.unreadReply
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 1.3; duration: 520; easing.type: Easing.OutCubic }
+                        NumberAnimation { to: 1.0; duration: 520; easing.type: Easing.InCubic }
+                    }
+                }
+            }
+
+            // Wordmark under the orb.
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignHCenter
+                horizontalAlignment: Text.AlignHCenter
+                text: i18n("AMELIA")
+                elide: Text.ElideRight
+                color: orb.containsMouse ? root.aiGlow : root.aiText
+                opacity: orb.containsMouse ? 1.0 : 0.72
+                font.pointSize: Math.max(6, root.uiCaptionPt - 1)
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 1.2
+                font.weight: Font.DemiBold
+
+                Behavior on color { ColorAnimation { duration: 160 } }
+                Behavior on opacity { NumberAnimation { duration: 160 } }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Expanded state: the full chat panel, shown in a pop-out dialog
+    // (or pinned to the desktop when pop-out mode is off).
+    // ─────────────────────────────────────────────────────────────
+    Plasmoid.fullRepresentation: Item {
+        id: fullRoot
+
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 17
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 13
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 23
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 18
+
+        // Local aliases so the markup below can stay unqualified.
+        readonly property real uiPad: root.uiPad
+        readonly property real uiGap: root.uiGap
+        readonly property real uiRadius: root.uiRadius
+        readonly property real uiBodyPt: root.uiBodyPt
+        readonly property real uiSmallPt: root.uiSmallPt
+        readonly property real uiCaptionPt: root.uiCaptionPt
+        readonly property string statusLabel: root.statusLabel
+        readonly property color statusColor: root.statusColor
+
+        // Grow-and-fade so opening the chat feels like it rises from the orb.
+        transformOrigin: Item.Center
+        opacity: 0
+        scale: 0.95
+
+        ParallelAnimation {
+            id: entrance
+            NumberAnimation {
+                target: fullRoot
+                property: "opacity"
+                from: 0.0
+                to: 1.0
+                duration: 170
+                easing.type: Easing.OutCubic
+            }
+            NumberAnimation {
+                target: fullRoot
+                property: "scale"
+                from: 0.95
+                to: 1.0
+                duration: 230
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.02
+            }
+        }
+
+        Connections {
+            target: plasmoid
+            function onExpandedChanged() {
+                if (plasmoid.expanded) {
+                    entrance.restart();
+                }
+            }
+        }
+
+        Component.onCompleted: {
+            root.liveWorkspace = compactWorkspace;
+            entrance.restart();
+            if (plasmoid.expanded) {
+                root.unreadReply = false;
+                root.scrollChatToEnd();
+                compactWorkspace.focusInput();
+            }
+        }
+        Component.onDestruction: {
+            if (root.liveWorkspace === compactWorkspace) {
+                root.liveWorkspace = null;
+            }
+        }
 
     // Outer glass shell
     GlassPanel {
@@ -943,7 +1260,7 @@ Item {
                         ChatBubble {
                             width: parent.width
                             role: "system"
-                            text: buildSelfCheckFailure()
+                            text: root.buildSelfCheckFailure()
                         }
                     }
 
@@ -964,6 +1281,8 @@ Item {
             }
         }
     }
+
+    } // end Plasmoid.fullRepresentation
 
     Component {
         id: immersiveComponent
