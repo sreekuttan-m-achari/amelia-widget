@@ -22,7 +22,7 @@ Amelia is early and personal, but the shape is deliberate: **leverage what you a
 
 - More desktop platforms and shell integrations
 - Richer tool / MCP workflows
-- Deeper OS hooks (quick actions, voice — TBD)
+- Deeper OS hooks (quick actions; listening/STT later)
 
 **Want in?** Fork it, clone it, make it yours. Explore the code, open issues, send PRs — contributions welcome.
 
@@ -33,6 +33,7 @@ Amelia is early and personal, but the shape is deliberate: **leverage what you a
 | **KDE Plasma** (Kubuntu, KDE Neon, etc.) | QML plasmoid (`package/`) | `./install.sh` |
 | **COSMIC** (Pop!_OS 24.04+, COSMIC on Ubuntu) | Rust panel applet (`cosmic-applet/`) | `cd cosmic-applet && ./install.sh` |
 | **GNOME** (Ubuntu 24.04+, Fedora 39+) | Shell extension (`gnome-extension/`) | `cd gnome-extension && ./install.sh` |
+| **Terminal** (any desktop) | CLI + TUI (`cli/`) | `cd cli && ./install.sh` |
 
 **GNOME Shell 45+** is required for the extension. Ubuntu 22.04 (GNOME 42–43) is not supported without a legacy port.
 
@@ -43,6 +44,7 @@ All frontends share one backend at `http://127.0.0.1:8787`.
 ```text
 amelia-widget/
   server/           # Node API + Cursor SDK agent (required for all UIs)
+  cli/              # Terminal CLI + TUI (optional)
   package/          # KDE Plasma plasmoid (QML)
   cosmic-applet/    # COSMIC panel applet (Rust + libcosmic)
   gnome-extension/  # GNOME Shell extension (GJS)
@@ -124,6 +126,23 @@ First install compiles from source (~1–3 min); `cosmic-applet/install.sh` inst
 
 No compiler needed — `gnome-extension/install.sh` copies JavaScript into `~/.local/share/gnome-shell/extensions/`. Restart GNOME Shell after enabling.
 
+### Terminal CLI / TUI (`cli/`)
+
+| Requirement | Notes |
+|-------------|--------|
+| **Node.js** | **22+** (same as backend) |
+| **Running backend** | `amelia-widget` service or `npm start` in `server/` |
+
+```bash
+cd cli
+./install.sh          # installs ~/.local/bin/amelia
+amelia                # interactive TUI
+amelia chat "hello"   # one-shot (streams reply)
+amelia health
+```
+
+Set `AMELIA_API_URL` (e.g. `http://127.0.0.1:8787`) if the server is not on the default host/port.
+
 ### Quick dependency matrix
 
 | Component | KDE | COSMIC | GNOME |
@@ -134,6 +153,7 @@ No compiler needed — `gnome-extension/install.sh` copies JavaScript into `~/.l
 | Plasma | ✅ | — | — |
 | COSMIC session | — | ✅ | — |
 | GNOME Shell 45+ | — | — | ✅ |
+| Terminal CLI | ✅ | ✅ | ✅ |
 | Rust + build deps | — | ✅ (build only) | — |
 
 ## Quick start
@@ -176,7 +196,7 @@ npm start
 
 ### 2. Frontend
 
-Pick one section below for your desktop environment.
+Pick one section below for your desktop environment (or use the [terminal CLI](#terminal-cli--tui-cli)).
 
 ---
 
@@ -220,6 +240,29 @@ Desktop clients poll `/health` every **5 seconds** and show status as:
 
 On startup the server loads `SOUL.md` (or `PROFILE.md`) and optional `USER.md`, then runs a warm-up turn so Amelia adopts that voice. Override paths with `AGENT_SOUL_PATH` / `AGENT_USER_PATH` in `.env`.
 
+### Voice reply (local TTS)
+
+The server speaks a **short done** line when a turn finishes (not your message, and not the full technical reply). No extra Cursor tokens — text is clipped with heuristics.
+
+Backends (auto-detected):
+
+1. **Piper** — if `piper` is on `PATH`, a `.onnx` model is found, and `paplay` / `pw-play` / `aplay` is available
+2. **`spd-say`** — Speech Dispatcher (already common on Ubuntu/Pop!_OS)
+3. Off — chat still works
+
+```bash
+# server/.env
+# AMELIA_VOICE=0          # disable
+# AMELIA_TTS=auto         # or piper | spd-say
+# AMELIA_PIPER_MODEL=/path/to/en_US-lessac-medium.onnx
+# AMELIA_VOICE_MAX_CHARS=120
+# AMELIA_SPD_LANGUAGE=en-US
+# AMELIA_SPD_VOICE=Andrea   # list: spd-say -l en-US -L
+# AMELIA_SPD_VOICE_TYPE=female1   # fallback if AMELIA_SPD_VOICE unset
+```
+
+Install Piper (optional, nicer voice): put a voice `.onnx` under `~/.local/share/piper/` (or set `AMELIA_PIPER_MODEL`). Startup logs which engine is active: `[amelia-voice] engine=…`.
+
 ### MCP tools
 
 Enable MCP in `.env`:
@@ -255,6 +298,13 @@ Notes:
 | `AMELIA_AGENT_CWD` | `server/` cwd | Agent workspace root |
 | `AMELIA_WS_HOST` | `127.0.0.1` | HTTP/WS bind host |
 | `AMELIA_WS_PORT` | `8787` | HTTP/WS port |
+| `AMELIA_VOICE` | on if backend found | Set `0` to disable local TTS ack/done |
+| `AMELIA_TTS` | `auto` | `auto` \| `piper` \| `spd-say` |
+| `AMELIA_PIPER_MODEL` | auto-discover | Path to Piper `.onnx` voice |
+| `AMELIA_VOICE_MAX_CHARS` | `120` | Max chars for spoken snippets |
+| `AMELIA_SPD_LANGUAGE` | `en-US` | spd-say language (`en-US`, `en-GB`, …) |
+| `AMELIA_SPD_VOICE` | — | Named spd-say voice (e.g. `Andrea`, `Linda`) |
+| `AMELIA_SPD_VOICE_TYPE` | `female1` | Fallback voice type if `AMELIA_SPD_VOICE` unset |
 | `HA_BASE_URL` | — | Home Assistant URL (MCP) |
 | `HA_API_ACCESS_TOKEN` | — | HA long-lived token (MCP) |
 | `AMELIA_DEBUG` | `0` | Log conversations to stderr + `.amelia-conversations.ndjson` |

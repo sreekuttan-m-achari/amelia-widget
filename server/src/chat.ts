@@ -6,8 +6,10 @@ import {
   type ConversationTransport,
 } from "./debug.js";
 import { isChatCancelled } from "./errors.js";
-import { waitForWarmup } from "./warmup.js";
+import { buildDoneSpeech, hasSpeakableFirstSentence } from "./spoken.js";
 import { isRecoverableRunError, runChatTurn } from "./stream.js";
+import { speak, stopSpeech } from "./tts.js";
+import { waitForWarmup } from "./warmup.js";
 
 export async function handleChatTurn(
   agent: AmeliaAgent,
@@ -19,13 +21,20 @@ export async function handleChatTurn(
 ): Promise<string> {
   await waitForWarmup();
   const started = Date.now();
+  let spokeEarly = false;
+  let streamed = "";
   try {
     const reply = await runChatTurn(
       agent,
       message,
       (text) => {
+        streamed += text;
         logStreamChunk(id, text);
         onChunk?.(text);
+        if (!spokeEarly && hasSpeakableFirstSentence(streamed)) {
+          spokeEarly = true;
+          speak(buildDoneSpeech(streamed));
+        }
       },
       id,
     );
@@ -36,9 +45,13 @@ export async function handleChatTurn(
       reply,
       durationMs: Date.now() - started,
     });
+    if (!spokeEarly) {
+      speak(buildDoneSpeech(reply));
+    }
     return reply;
   } catch (err) {
     if (isChatCancelled(err)) {
+      stopSpeech();
       logConversation({
         transport,
         id,

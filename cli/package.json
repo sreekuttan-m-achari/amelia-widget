@@ -1,0 +1,26 @@
+{
+  "name": "amelia-cli",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Terminal CLI and TUI for Amelia widget",
+  "bin": {
+    "amelia": "bin/amelia"
+  },
+  "scripts": {
+    "start": "tsx src/main.tsx",
+    "dev": "tsx watch src/main.tsx"
+  },
+  "dependencies": {
+    "ink": "^7.1.0",
+    "react": "^19.2.7",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.17",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

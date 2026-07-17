@@ -5,6 +5,7 @@ import { CursorAgentError } from "@cursor/sdk";
 
 import type { AmeliaAgent } from "./agent.js";
 import { createStreamingCollector } from "./stream.js";
+import { voiceCapabilitySummary } from "./tts.js";
 
 const DEFAULT_CANDIDATES = ["SOUL.md", "PROFILE.md"] as const;
 
@@ -57,6 +58,13 @@ export function loadUserMarkdown(cwd: string): string | undefined {
   }
 }
 
+function appendVoiceContext(parts: string[]): void {
+  const voice = voiceCapabilitySummary();
+  if (voice) {
+    parts.push("", "---", "", voice);
+  }
+}
+
 function buildBootstrapUserMessage(
   persona: string,
   userContext?: string,
@@ -80,6 +88,7 @@ function buildBootstrapUserMessage(
       userContext.trim(),
     );
   }
+  appendVoiceContext(parts);
   return parts.join("\n");
 }
 
@@ -98,6 +107,7 @@ export function buildGreetingPrompt(userContext?: string): string {
       userContext.trim(),
     );
   }
+  appendVoiceContext(parts);
   return parts.join("\n");
 }
 

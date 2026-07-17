@@ -4,6 +4,9 @@
 !.env-sample
 !.env.*-sample
 
+# Dependencies
+node_modules/
+
 # Agent persona (user-specific)
 server/SOUL.md
 server/USER.md

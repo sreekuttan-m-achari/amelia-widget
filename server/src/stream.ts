@@ -7,7 +7,7 @@ import type {
 } from "@cursor/sdk";
 
 import type { AmeliaAgent } from "./agent.js";
-import { withAgentBusyRecovery } from "./agent-busy.js";
+import { withAgentBusyRecovery, isAgentBusyError } from "./agent-busy.js";
 import { ChatCancelledError } from "./errors.js";
 import {
   registerActiveRun,
@@ -86,6 +86,9 @@ function describeRunFailure(result: RunResult, run: Run): string {
 }
 
 export function isRecoverableRunError(err: unknown): boolean {
+  if (isAgentBusyError(err)) {
+    return true;
+  }
   if (!(err instanceof Error)) {
     return false;
   }
@@ -94,7 +97,9 @@ export function isRecoverableRunError(err: unknown): boolean {
     message.includes("agent run failed") ||
     message.includes("network request failed") ||
     message.includes("network error") ||
-    message.includes("service unavailable")
+    message.includes("service unavailable") ||
+    // Ghost lock from a prior process — cancelStaleRuns could not clear it.
+    message.includes("already has active run")
   );
 }
 

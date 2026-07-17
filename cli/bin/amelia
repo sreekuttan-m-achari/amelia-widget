@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Prefer Node 22 from nvm (matches server/.nvmrc) when available.
+if [[ -f "${ROOT}/../server/.nvmrc" ]]; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "${NVM_DIR}/nvm.sh"
+    (cd "${ROOT}/../server" && nvm use >/dev/null 2>&1) || true
+  fi
+fi
+
+exec "${ROOT}/node_modules/.bin/tsx" "${ROOT}/src/main.tsx" "$@"

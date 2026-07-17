@@ -4,10 +4,12 @@ import { initAgent, shutdownAgent } from "./agent-manager.js";
 import { cancelStaleRuns } from "./agent-busy.js";
 import { agentCwd } from "./persona.js";
 import { logDebugStartup } from "./debug.js";
+import { initTts } from "./tts.js";
 import { startServer } from "./ws.js";
 import { startWarmup } from "./warmup.js";
 
 logDebugStartup();
+initTts();
 
 const agent = await initAgent();
 const cleared = await cancelStaleRuns(agent.agentId, agentCwd());

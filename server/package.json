@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
-    "dev": "tsx watch src/main.ts"
+    "dev": "tsx watch src/main.ts",
+    "test": "tsx --test src/__tests__/**/*.test.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.22",

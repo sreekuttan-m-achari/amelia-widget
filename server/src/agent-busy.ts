@@ -99,6 +99,11 @@ export async function recoverFromBusyAgent(
     }
   }
 
+  // No cancellable run found — likely a ghost lock. Brief wait then retry;
+  // callers should reset the session if busy persists after maxAttempts.
+  console.error(
+    `[amelia-agent] No running run listed for ${agentId}; waiting before retry`,
+  );
   await new Promise<void>((resolve) => setTimeout(resolve, busyRetryDelayMs()));
   return false;
 }
